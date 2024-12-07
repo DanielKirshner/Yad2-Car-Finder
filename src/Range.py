@@ -1,6 +1,10 @@
 class Range:
-
-    def __init__(self, min: int = -1, max: int = -1) -> None:
+    """
+    Class that represents "Yad-2" URL ranges for parameters
+    """
+    INFINITE: int = -1
+    
+    def __init__(self, min: int = INFINITE, max: int = INFINITE) -> None:
         self.__min = min
         self.__max = max
     

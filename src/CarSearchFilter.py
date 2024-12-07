@@ -3,7 +3,6 @@ from Range import Range
 
 
 class CarSearchFilter:
-    
     class Manufacturer(IntEnum):
         AUDI = 1
         OPEL = 2
@@ -22,11 +21,11 @@ class CarSearchFilter:
         SKODA = 40
         FIAT = 45
         KIA = 48
-        # TODO: Add...
+        # TODO: add more manufacturers by checking https://www.yad2.co.il/vehicles/cars?manufacturer=62
     
     class Model(IntEnum):
-        # TODO: Add...
-        pass
+        PICANTO = 10711
+        # TODO: add more
     
     class GearBox(IntEnum):
         MANUAL = 101
