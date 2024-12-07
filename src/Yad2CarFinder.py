@@ -106,5 +106,4 @@ class Yad2CarFinder:
             with open("results.json", "w") as f:
                 f.write(json.dumps(result_urls))
 
-            time.sleep(5)
             print("ChromeDriver has been terminated!")
