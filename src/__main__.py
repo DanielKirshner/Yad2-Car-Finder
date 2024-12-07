@@ -7,5 +7,8 @@ yad2_car_finder = Yad2CarFinder()
 
 
 if (__name__ == "__main__"):
-    car_search_filter = CarSearchFilter()
+    car_search_filter = CarSearchFilter(
+        manufacturers=[CarSearchFilter.Manufacturer.KIA],
+        models=[CarSearchFilter.Model.PICANTO],
+        year_range=Range(2010, -1))
     yad2_car_finder.find(car_search_filter)

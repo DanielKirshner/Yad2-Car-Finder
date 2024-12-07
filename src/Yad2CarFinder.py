@@ -13,7 +13,7 @@ class Yad2CarFinder:
     
     __CHROME_ARGUMENTS = [
         "--incognito",
-        "--headless",
+        # "--headless",
         "--disable-gpu",
         "--window-size=1920,1080",
         "--disable-extensions",
@@ -49,7 +49,7 @@ class Yad2CarFinder:
         for chrome_argument in chrome_arguments:
             chrome_options.add_argument(chrome_argument)
         chrome_service = ChromeService()
-        chrome_service.creation_flags |= subprocess.CREATE_NO_WINDOW
+        # chrome_service.creation_flags |= subprocess.CREATE_NO_WINDOW
         return ChromeDriver(chrome_options, chrome_service)
     
     @staticmethod
@@ -57,7 +57,7 @@ class Yad2CarFinder:
         car_search_url = base_car_search_url
         car_search_url_parameters = car_search_filter.get_url_parameters()
         if (len(car_search_url_parameters) > 0):
-            car_search_url += f"?{"&".join(car_search_url_parameters)}"
+            car_search_url += f'?{"&".join(car_search_url_parameters)}'
         return car_search_url
     
     def find(self, car_search_filter: CarSearchFilter) -> None:
