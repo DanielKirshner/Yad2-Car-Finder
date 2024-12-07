@@ -1,3 +1,4 @@
+import os
 import time
 import json
 import subprocess
@@ -49,7 +50,10 @@ class Yad2CarFinder:
         for chrome_argument in chrome_arguments:
             chrome_options.add_argument(chrome_argument)
         chrome_service = ChromeService()
-        # chrome_service.creation_flags |= subprocess.CREATE_NO_WINDOW
+        WINDOWS_OS_TYPE = 'nt'
+        if os.name == WINDOWS_OS_TYPE:
+            chrome_service.creation_flags |= subprocess.CREATE_NO_WINDOW
+        # TODO: handle the trash log hiding in other platforms (mac os, linux, etc..)
         return ChromeDriver(chrome_options, chrome_service)
     
     @staticmethod
