@@ -2,4 +2,9 @@
 Scraper for "Yad-2" to track your dream car
 
 ## Setup
-Download stable Chrome driver from [here](https://googlechromelabs.github.io/chrome-for-testing/#stable)
+- Download stable Chrome driver from [here](https://googlechromelabs.github.io/chrome-for-testing/#stable)
+- Use python version 3.13.1 or upper
+- Download pip requirements
+    ```
+    pip install -r requirements.txt
+    ```

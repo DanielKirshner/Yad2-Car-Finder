@@ -1,8 +1,7 @@
 import os
 import time
-import json
 import subprocess
-from typing import Callable
+from typing import Callable, List
 from selenium.webdriver import Chrome as ChromeDriver
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver import ChromeService
@@ -10,8 +9,7 @@ from selenium.webdriver.common.by import By
 from CarSearchFilter import CarSearchFilter
 
 
-class Yad2CarFinder:
-    
+class Yad2CarFinder:  
     __CHROME_ARGUMENTS = [
         "--incognito",
         # "--headless",
@@ -64,7 +62,7 @@ class Yad2CarFinder:
             car_search_url += f'?{"&".join(car_search_url_parameters)}'
         return car_search_url
     
-    def find(self, car_search_filter: CarSearchFilter) -> None:
+    def find(self, car_search_filter: CarSearchFilter) -> List[List[str]]:
         with Yad2CarFinder.__start_chrome_driver(Yad2CarFinder.__CHROME_ARGUMENTS) as chrome_driver:
             print("ChromeDriver has been started!")
 
@@ -87,7 +85,7 @@ class Yad2CarFinder:
             Yad2CarFinder.__execute_verbosely("Closing advertisement popup...", close_advertisement_popup)
 
             # Walking through the search-result pages and fetching results
-            result_urls: list[list[str]] = []
+            result_urls: List[List[str]] = []
             next_page_button_element = chrome_driver.find_element(By.XPATH, "(//a[contains(@class, 'pagination-arrow_button')])[2]")
             for i in range(Yad2CarFinder.__MAX_SEARCH_RESULT_PAGES_TO_FETCH):
                 result_urls.append([])
@@ -107,7 +105,5 @@ class Yad2CarFinder:
                         )
                     Yad2CarFinder.__execute_verbosely(f"Going to page {i + 2}...", go_to_next_page)
 
-            with open("results.json", "w") as f:
-                f.write(json.dumps(result_urls))
-
             print("ChromeDriver has been terminated!")
+            return result_urls

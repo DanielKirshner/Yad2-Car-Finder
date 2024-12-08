@@ -1,6 +1,5 @@
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from Range import Range
-
 
 class CarSearchFilter:
     class Manufacturer(IntEnum):
@@ -41,16 +40,17 @@ class CarSearchFilter:
         JERUSALEM = 100
         HADERA = 101
     
-    __URL_PARAMETER_NAME__MANUFACTURER = "manufacturer"
-    __URL_PARAMETER_NAME__MODEL = "model"
-    __URL_PARAMETER_NAME__GEAR_BOX = "gearBox"
-    __URL_PARAMETER_NAME__YEAR = "year"
-    __URL_PARAMETER_NAME__HAND = "hand"
-    __URL_PARAMETER_NAME__KILOMETRAGE = "km"
-    __URL_PARAMETER_NAME__PRICE = "price"
-    __URL_PARAMETER_NAME__AREA = "topArea"
-    __URL_PARAMETER_NAME__PRICE_ONLY = "priceOnly"
-    __URL_PARAMETER_NAME__IMAGE_ONLY = "imgOnly"
+    class UrlParameterName(StrEnum):
+        MANUFACTURER = "manufacturer"
+        MODEL = "model"
+        GEAR_BOX = "gearBox"
+        YEAR = "year"
+        HAND = "hand"
+        KILOMETRAGE = "km"
+        PRICE = "price"
+        AREA = "topArea"
+        PRICE_ONLY = "priceOnly"
+        IMAGE_ONLY = "imgOnly"
 
     @staticmethod
     def get_selections_as_string(selections: list[IntEnum]) -> str:
@@ -86,24 +86,35 @@ class CarSearchFilter:
     
     def get_url_parameters(self) -> list[str]:
         url_parameters = []
+        
         if (len(self.manufacturers) > 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__MANUFACTURER}={CarSearchFilter.get_selections_as_string(self.manufacturers)}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.MANUFACTURER}={CarSearchFilter.get_selections_as_string(self.manufacturers)}")
+        
         if (len(self.models) > 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__MODEL}={CarSearchFilter.get_selections_as_string(self.models)}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.MODEL}={CarSearchFilter.get_selections_as_string(self.models)}")
+        
         if (len(self.gear_boxes) > 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__GEAR_BOX}={CarSearchFilter.get_selections_as_string(self.gear_boxes)}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.GEAR_BOX}={CarSearchFilter.get_selections_as_string(self.gear_boxes)}")
+        
         if (self.year_range.get_min() >= 0 or self.year_range.get_max() >= 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__YEAR}={self.year_range.get_min()}-{self.year_range.get_max()}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.YEAR}={self.year_range.get_min()}-{self.year_range.get_max()}")
+        
         if (self.hand_range.get_min() >= 0 or self.hand_range.get_max() >= 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__HAND}={self.hand_range.get_min()}-{self.hand_range.get_max()}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.HAND}={self.hand_range.get_min()}-{self.hand_range.get_max()}")
+        
         if (self.kilometrage_range.get_min() >= 0 or self.kilometrage_range.get_max() >= 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__KILOMETRAGE}={self.kilometrage_range.get_min()}-{self.kilometrage_range.get_max()}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.KILOMETRAGE}={self.kilometrage_range.get_min()}-{self.kilometrage_range.get_max()}")
+        
         if (self.price_range.get_min() >= 0 or self.price_range.get_max() >= 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__PRICE}={self.price_range.get_min()}-{self.price_range.get_max()}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.PRICE}={self.price_range.get_min()}-{self.price_range.get_max()}")
+        
         if (len(self.areas) > 0):
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__AREA}={CarSearchFilter.get_selections_as_string(self.areas)}")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.AREA}={CarSearchFilter.get_selections_as_string(self.areas)}")
+        
         if self.only_with_price:
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__PRICE_ONLY}=1")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.PRICE_ONLY}=1")
+        
         if self.only_with_image:
-            url_parameters.append(f"{CarSearchFilter.__URL_PARAMETER_NAME__IMAGE_ONLY}=1")
+            url_parameters.append(f"{CarSearchFilter.UrlParameterName.IMAGE_ONLY}=1")
+        
         return url_parameters
