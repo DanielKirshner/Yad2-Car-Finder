@@ -1,6 +1,6 @@
-from Yad2CarFinder import Yad2CarFinder
-from CarSearchFilter import CarSearchFilter
-from Range import Range
+from car_finder import Yad2CarFinder
+from car_search_filter import CarSearchFilter
+from range import Range
 import json
 
 

@@ -1,5 +1,5 @@
 from enum import IntEnum, StrEnum
-from Range import Range
+from range import Range
 
 class CarSearchFilter:
     class Manufacturer(IntEnum):
