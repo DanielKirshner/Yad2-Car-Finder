@@ -7,7 +7,7 @@ from selenium.webdriver import Chrome as ChromeDriver
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver import ChromeService
 from selenium.webdriver.common.by import By
-from CarSearchFilter import CarSearchFilter
+from car_search_filter import CarSearchFilter
 
 
 class Yad2CarFinder:  
@@ -23,7 +23,7 @@ class Yad2CarFinder:
     ]
     __BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
     __FETCHING_INTERVAL_IN_SECONDS = 3
-    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 10
+    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 100
 
     @staticmethod
     def __execute_and_wait(action: Callable[[], (object | None)], wait_time_in_seconds: int) -> (object | None):
@@ -38,10 +38,9 @@ class Yad2CarFinder:
         result = None
         try:
             result = action()
-            print(" SUCCESS!")
+            print("SUCCESS!")
         except Exception as ex:
-            print(" ERROR!")
-            print(ex)
+            print(f"ERROR!\n{ex}")
         return result
 
     @staticmethod
@@ -111,5 +110,5 @@ class Yad2CarFinder:
                         result_urls.add(result_item_element_link)
                 Yad2CarFinder.__execute_verbosely(f"Fetching results [page {i}/{len(page_urls)}]...", fetch_results)
 
-            print(f"ChromeDriver has been terminated! Collected {len(result_urls)} results")
+            print(f"ChromeDriver has been terminated!\nCollected {len(result_urls)} results")
             return result_urls
