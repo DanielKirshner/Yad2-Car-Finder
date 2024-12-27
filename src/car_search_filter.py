@@ -1,5 +1,5 @@
 from enum import IntEnum, StrEnum
-from Range import Range
+from range import Range
 
 class CarSearchFilter:
     class Manufacturer(IntEnum):
@@ -17,6 +17,7 @@ class CarSearchFilter:
         SUBARU = 35
         SUZUKI = 36
         SEAT = 37
+        CITROEN = 38
         SKODA = 40
         FIAT = 45
         KIA = 48
@@ -24,6 +25,7 @@ class CarSearchFilter:
     
     class Model(IntEnum):
         PICANTO = 10711
+        C3 = 10517
         # TODO: add more
     
     class GearBox(IntEnum):
