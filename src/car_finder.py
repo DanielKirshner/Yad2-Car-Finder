@@ -13,7 +13,7 @@ from car_search_filter import CarSearchFilter
 class Yad2CarFinder:  
     __CHROME_ARGUMENTS = [
         "--incognito",
-        # "--headless",
+        "--headless",
         "--disable-gpu",
         "--window-size=1920,1080",
         "--disable-extensions",
@@ -23,7 +23,7 @@ class Yad2CarFinder:
     ]
     __BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
     __FETCHING_INTERVAL_IN_SECONDS = 3
-    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 100
+    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 10
 
     @staticmethod
     def __execute_and_wait(action: Callable[[], (object | None)], wait_time_in_seconds: int) -> (object | None):
