@@ -10,4 +10,4 @@ Scraper for "Yad-2" to track your dream car
     ```
 
 ## **Configuration**
-- Config output file and car preferences in [`src/config.py`](src/config.py)
+- Config output file and car preferences in [`config.py`](src/common/config.py)
