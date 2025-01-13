@@ -7,7 +7,7 @@ from selenium.webdriver import Chrome as ChromeDriver
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver import ChromeService
 from selenium.webdriver.common.by import By
-from car_search_filter import CarSearchFilter
+from car.car_search_filter import CarSearchFilter
 
 
 class Yad2CarFinder:  
