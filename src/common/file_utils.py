@@ -10,6 +10,10 @@ class FileMode(str, Enum):
 
 class FileUtils:
     @staticmethod
-    def dump_to_file(data_to_dump: list[str], file_path: str) -> None:
-        with open(file_path, FileMode.WRITE.value) as f:
+    def dump_to_file(data_to_dump: list[str], file_path: str) -> bool:
+        try:
+            with open(file_path, FileMode.WRITE.value) as f:
                 json.dump(data_to_dump, f, indent=4)
+            return True
+        except IOError:
+            return False
