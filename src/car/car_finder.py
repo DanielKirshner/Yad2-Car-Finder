@@ -1,6 +1,7 @@
 import os
 import time
 import subprocess
+import logging
 from typing import Callable, Set
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import Chrome as ChromeDriver
@@ -10,7 +11,7 @@ from selenium.webdriver.common.by import By
 from car.car_search_filter import CarSearchFilter
 
 
-class Yad2CarFinder:  
+class Yad2CarFinder:
     __CHROME_ARGUMENTS = [
         "--incognito",
         # "--headless",
@@ -34,13 +35,13 @@ class Yad2CarFinder:
 
     @staticmethod
     def __execute_verbosely(message: str, action: Callable[[], (object | None)]) -> (object | None):
-        print(message, end="")
+        logging.info(message)
         result = None
         try:
             result = action()
-            print("SUCCESS!")
-        except Exception as ex:
-            print(f"ERROR!\n{ex}")
+            logging.info("SUCCESS!")
+        except Exception as error:
+            logging.error(f"ERROR!\n{error}")
         return result
 
     @staticmethod
@@ -65,7 +66,7 @@ class Yad2CarFinder:
     
     def find(self, car_search_filter: CarSearchFilter) -> Set[str]:
         with Yad2CarFinder.__start_chrome_driver(Yad2CarFinder.__CHROME_ARGUMENTS) as chrome_driver:
-            print("ChromeDriver has been started!")
+            logging.info("ChromeDriver has been started!")
 
             # Loading the initial page
             def load_initial_page():
@@ -110,5 +111,6 @@ class Yad2CarFinder:
                         result_urls.add(result_item_element_link)
                 Yad2CarFinder.__execute_verbosely(f"Fetching results [page {i}/{len(page_urls)}]...", fetch_results)
 
-            print(f"ChromeDriver has been terminated!\nCollected {len(result_urls)} results")
+            logging.info("ChromeDriver has been terminated!")
+            logging.info(f"Collected {len(result_urls)} results")
             return result_urls
