@@ -1,5 +1,5 @@
-from car_search_filter import CarSearchFilter
-from range import Range
+from car.car_search_filter import CarSearchFilter
+from .range import Range
 import os
 
 class Configuration:

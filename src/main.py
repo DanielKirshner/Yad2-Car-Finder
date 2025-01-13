@@ -1,6 +1,6 @@
-from file_utils import FileUtils
-from config import Configuration
-from cars_link_retriever import CarsLinkRetriever
+from common.file_utils import FileUtils
+from common.config import Configuration
+from car.cars_link_retriever import CarsLinkRetriever
 
 
 def main():
