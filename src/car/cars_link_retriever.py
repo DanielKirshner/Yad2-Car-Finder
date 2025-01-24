@@ -1,5 +1,5 @@
-from car_search_filter import CarSearchFilter
-from car_finder import Yad2CarFinder
+from car.car_search_filter import CarSearchFilter
+from car.car_finder import Yad2CarFinder
 
 class CarsLinkRetriever:
     @staticmethod
