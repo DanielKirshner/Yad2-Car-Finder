@@ -20,7 +20,7 @@ class Yad2CarFinder:
         "--disable-extensions",
         "--mute-audio",
         "--blink-settings=imagesEnabled=false",
-        "--user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\""
+        "--user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\"" # TODO: Get the chrome version as a parameter
     ]
     __BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
     __FETCHING_INTERVAL_IN_SECONDS = 3
