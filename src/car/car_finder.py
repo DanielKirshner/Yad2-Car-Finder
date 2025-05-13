@@ -24,7 +24,7 @@ class Yad2CarFinder:
     ]
     __BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
     __FETCHING_INTERVAL_IN_SECONDS = 3
-    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 100
+    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 12
 
     @staticmethod
     def __execute_and_wait(action: Callable[[], (object | None)], wait_time_in_seconds: int) -> (object | None):
@@ -68,10 +68,12 @@ class Yad2CarFinder:
         with Yad2CarFinder.__start_chrome_driver(Yad2CarFinder.__CHROME_ARGUMENTS) as chrome_driver:
             logging.info("ChromeDriver has been started!")
 
+            car_search_url = Yad2CarFinder.__get_car_search_url(Yad2CarFinder.__BASE_CAR_SEARCH_URL, car_search_filter)
+            
             # Loading the initial page
             def load_initial_page():
-                car_search_url = Yad2CarFinder.__get_car_search_url(Yad2CarFinder.__BASE_CAR_SEARCH_URL, car_search_filter)
                 chrome_driver.get(car_search_url)
+            
             Yad2CarFinder.__execute_and_wait(
                 lambda: Yad2CarFinder.__execute_verbosely("Loading initial page...", load_initial_page),
                 Yad2CarFinder.__FETCHING_INTERVAL_IN_SECONDS
@@ -92,24 +94,28 @@ class Yad2CarFinder:
 
             pagination_navbar = chrome_driver.find_element(By.XPATH, "//nav[@data-nagish='pagination-navbar']")
             pages_list = pagination_navbar.find_element(By.TAG_NAME, 'ol')
-            pages = pages_list.find_elements(By.TAG_NAME, 'li')
-
-            page_urls = [page.find_element(By.TAG_NAME, "a").get_attribute("href") for page in pages]
-            page_urls = page_urls[:Yad2CarFinder.__MAX_SEARCH_RESULT_PAGES_TO_FETCH]
+            last_page_button = pages_list.find_elements(By.TAG_NAME, 'li')[-1]
+            last_page_button_text = last_page_button.find_element(By.TAG_NAME, 'a').text
+            max_pages = int(last_page_button_text)
 
             # Walking through the search-result pages and fetching results
             result_urls: Set[str] = set()
-            for i, url in enumerate(page_urls, start=1):
+            
+            for page_number in range(1, max_pages + 1):
+
                 def get_page():
-                    chrome_driver.get(url)
-                Yad2CarFinder.__execute_verbosely(f"Getting page {i}...", get_page)
+                    # Use '?' for first query param, '&' if params already exist
+                    separator = '?' if car_search_url == Yad2CarFinder.__BASE_CAR_SEARCH_URL else '&'
+                    chrome_driver.get(f"{car_search_url}{separator}page={page_number}")
+
+                Yad2CarFinder.__execute_verbosely(f"Getting page {page_number}...", get_page)
 
                 def fetch_results():
                     result_item_elements = chrome_driver.find_elements(By.XPATH, "//div[contains(@class, 'feed-item-base_feedItemBox')]")
                     for result_item_element in result_item_elements:
                         result_item_element_link = result_item_element.find_element(By.TAG_NAME, "a").get_attribute("href").split("?")[0]
                         result_urls.add(result_item_element_link)
-                Yad2CarFinder.__execute_verbosely(f"Fetching results [page {i}/{len(page_urls)}]...", fetch_results)
+                Yad2CarFinder.__execute_verbosely(f"Fetching results [page {page_number}/{max_pages}]...", fetch_results)
 
             logging.info("ChromeDriver has been terminated!")
             logging.info(f"Collected {len(result_urls)} results")
