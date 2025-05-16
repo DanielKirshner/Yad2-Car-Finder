@@ -9,8 +9,8 @@ class Configuration:
 
     CAR_SEARCH_FILTERS = CarSearchFilter(
             manufacturers=[CarSearchFilter.Manufacturer.KIA],
-            models=[CarSearchFilter.Model.PICANTO])
-            # year_range=Range(2024, 2025))
+            models=[CarSearchFilter.Model.PICANTO],
+            year_range=Range(2020, 2025))
     
     class Logger:
         DEFAULT_LOG_DIR_NAME: str = "logs"
