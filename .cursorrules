@@ -1,0 +1,45 @@
+# Project Conventions
+
+## Code Style
+- Use single underscore `_` for private members and methods (not `__`)
+- Format with ruff: double quotes, space indentation, 100 char line length
+- Imports sorted by isort (stdlib, third-party, first-party)
+
+## Error Handling
+- Use custom exceptions with error codes (see `src/common/exceptions.py`)
+- Every error code is an `IntEnum` in `ErrorCode`
+- All custom exceptions extend `CustomException(message, error_code)`
+- Raise specific exceptions instead of using bare `except` or returning booleans for failures
+- Log the exception before raising when appropriate
+
+## Async Patterns
+- All I/O operations must be async (browser automation, file writes)
+- Use `nodriver` for browser automation (not Selenium)
+- Use `aiofiles` for async file I/O
+- Entry point uses `nodriver.loop().run_until_complete(main())`
+- Use `asyncio.sleep()` instead of `time.sleep()`
+
+## Project Structure
+```
+src/
+  main.py                    # async entry point
+  car/
+    car_finder.py            # browser automation (nodriver)
+    car_search_filter.py     # search filter params & enums
+    cars_link_retriever.py   # orchestrates finder
+  common/
+    config.py                # search config & paths
+    exceptions.py            # custom exceptions & error codes
+    file_utils.py            # async file I/O
+    logger.py                # logging setup
+    range.py                 # URL range helper
+```
+
+## Yad2 Domain Context
+- Target site: https://www.yad2.co.il/vehicles/cars
+- Feed items use `data-nagish` attributes which are stable selectors
+- Feed item links: `a[data-nagish='feed-item-card-link']`
+- Pagination navbar: `nav[data-nagish='pagination-navbar']`
+- Ad popup may appear in iframe with title "Modal Message" and close button class `bz-close-btn`
+- Captcha may appear; code should detect timeout and wait for manual solve
+- Keep a small delay between page loads (1s) to avoid rate limiting
