@@ -1,22 +1,14 @@
-import logging
-
-import nodriver as uc
-from car.cars_link_retriever import CarsLinkRetriever
-from common.config import Configuration
-from common.file_utils import FileUtils
-from common.logger import Logger
+from bot.bot import create_bot
+from common.logger import LoggerSetup, logger
 
 
-async def main():
-    try:
-        Logger()
+def main() -> None:
+    LoggerSetup()
+    logger.info("Starting Yad2 Car Finder Telegram Bot...")
 
-        results = await CarsLinkRetriever.retrieve_urls(Configuration.CAR_SEARCH_FILTERS)
-        await FileUtils.dump_to_file(results, Configuration.RESULTS_FILE_PATH)
-
-    except KeyboardInterrupt:
-        logging.warning("Stopped by user!")
+    app = create_bot()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    uc.loop().run_until_complete(main())
+    main()
