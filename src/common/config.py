@@ -8,9 +8,6 @@ load_dotenv()
 
 
 class Configuration:
-    RESULTS_FILE_NAME = "results.json"
-    RESULTS_FILE_PATH = os.path.join(os.getcwd(), RESULTS_FILE_NAME)
-
     class Logger:
         DEFAULT_LOG_DIR_NAME: str = "logs"
         DEFAULT_LOG_LEVEL: str = os.getenv("LOG_LEVEL", "DEBUG")
