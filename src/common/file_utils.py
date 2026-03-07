@@ -1,5 +1,4 @@
 import json
-import logging
 from enum import Enum
 
 import aiofiles
@@ -20,7 +19,9 @@ class FileUtils:
             async with aiofiles.open(file_path, FileMode.WRITE.value) as f:
                 await f.write(json.dumps(data_to_dump, indent=4))
         except OSError as e:
-            logging.error(f"Failed to write to file '{file_path}': {e}")
+            from common.logger import logger
+
+            logger.error("Failed to write to file", file_path=file_path, error=str(e))
             raise CustomException(
                 f"Failed to write to file '{file_path}': {e}",
                 ErrorCode.FILE_WRITE_FAILED,
