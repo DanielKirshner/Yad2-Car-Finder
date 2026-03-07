@@ -3,3 +3,4 @@ results.json
 chrome
 chromedriver
 logs
+.env

@@ -12,6 +12,11 @@ class ErrorCode(IntEnum):
     FEED_ITEMS_NOT_FOUND = 6
     PAGINATION_PARSE_FAILED = 7
     FILE_WRITE_FAILED = 8
+    SCAN_FAILED = 9
+    BOT_START_FAILED = 10
+    INVALID_FILTER = 11
+    TELEGRAM_SEND_FAILED = 12
+    ENV_CONFIG_MISSING = 13
 
 
 class CustomException(Exception):

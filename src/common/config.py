@@ -1,19 +1,27 @@
 import os
 
-from car.car_search_filter import CarSearchFilter
+from dotenv import load_dotenv
 
-from .range import Range
+from .exceptions import CustomException, ErrorCode
+
+load_dotenv()
 
 
 class Configuration:
     RESULTS_FILE_NAME = "results.json"
     RESULTS_FILE_PATH = os.path.join(os.getcwd(), RESULTS_FILE_NAME)
 
-    CAR_SEARCH_FILTERS = CarSearchFilter(
-        manufacturers=[CarSearchFilter.Manufacturer.KIA],
-        models=[CarSearchFilter.Model.PICANTO],
-        year_range=Range(2023, 2025),
-    )
-
     class Logger:
         DEFAULT_LOG_DIR_NAME: str = "logs"
+        DEFAULT_LOG_LEVEL: str = os.getenv("LOG_LEVEL", "DEBUG")
+
+    class Bot:
+        TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+        @staticmethod
+        def validate() -> None:
+            if not Configuration.Bot.TOKEN:
+                raise CustomException(
+                    "TELEGRAM_BOT_TOKEN is not set in .env file",
+                    ErrorCode.ENV_CONFIG_MISSING,
+                )
