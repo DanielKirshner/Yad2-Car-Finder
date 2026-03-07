@@ -1,15 +1,14 @@
 class Range:
-    """
-    Class that represents "Yad-2" URL ranges for parameters
-    """
+    """Class that represents Yad2 URL ranges for parameters."""
+
     INFINITE: int = -1
-    
+
     def __init__(self, min: int = INFINITE, max: int = INFINITE) -> None:
-        self.__min = min
-        self.__max = max
-    
+        self._min = min
+        self._max = max
+
     def get_min(self) -> int:
-        return self.__min
-    
+        return self._min
+
     def get_max(self) -> int:
-        return self.__max
+        return self._max

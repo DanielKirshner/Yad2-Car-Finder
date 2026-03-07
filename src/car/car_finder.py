@@ -1,116 +1,173 @@
-import os
-import time
-import subprocess
 import logging
-from typing import Callable, Set
-from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver import Chrome as ChromeDriver
-from selenium.webdriver import ChromeOptions
-from selenium.webdriver import ChromeService
-from selenium.webdriver.common.by import By
+import time
+
+import nodriver as uc
 from car.car_search_filter import CarSearchFilter
+from common.exceptions import CustomException, ErrorCode
 
 
 class Yad2CarFinder:
-    __CHROME_ARGUMENTS = [
-        "--incognito",
-        # "--headless",
+    _CHROME_ARGUMENTS = [
         "--disable-gpu",
         "--window-size=1920,1080",
-        "--disable-extensions",
         "--mute-audio",
-        "--blink-settings=imagesEnabled=false",
-        "--user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\""
     ]
-    __BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
-    __FETCHING_INTERVAL_IN_SECONDS = 3
-    __MAX_SEARCH_RESULT_PAGES_TO_FETCH = 100
+    _BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
+    _FETCHING_INTERVAL_IN_SECONDS = 1
+    _PAGE_LOAD_TIMEOUT_IN_SECONDS = 15
+    _CAPTCHA_TIMEOUT_IN_SECONDS = 120
+    _POLL_INTERVAL_IN_SECONDS = 1
+
+    _FEED_ITEM_SELECTOR = "a[data-nagish='feed-item-card-link']"
+    _PAGINATION_SELECTOR = "nav[data-nagish='pagination-navbar']"
 
     @staticmethod
-    def __execute_and_wait(action: Callable[[], (object | None)], wait_time_in_seconds: int) -> (object | None):
+    async def _start_browser(chrome_arguments: list[str]) -> uc.Browser:
         try:
-            return action()
-        finally:
-            time.sleep(wait_time_in_seconds)
+            return await uc.start(browser_args=chrome_arguments)
+        except Exception as e:
+            raise CustomException(
+                f"Failed to start browser: {e}",
+                ErrorCode.BROWSER_START_FAILED,
+            ) from e
 
     @staticmethod
-    def __execute_verbosely(message: str, action: Callable[[], (object | None)]) -> (object | None):
-        logging.info(message)
-        result = None
-        try:
-            result = action()
-            logging.info("SUCCESS!")
-        except Exception as error:
-            logging.error(f"ERROR!\n{error}")
-        return result
-
-    @staticmethod
-    def __start_chrome_driver(chrome_arguments: list[str]) -> ChromeDriver:
-        chrome_options = ChromeOptions()
-        for chrome_argument in chrome_arguments:
-            chrome_options.add_argument(chrome_argument)
-        chrome_service = ChromeService()
-        WINDOWS_OS_TYPE = 'nt'
-        if os.name == WINDOWS_OS_TYPE:
-            chrome_service.creation_flags |= subprocess.CREATE_NO_WINDOW
-        # TODO: handle the trash log hiding in other platforms (mac os, linux, etc..)
-        return ChromeDriver(chrome_options, chrome_service)
-    
-    @staticmethod
-    def __get_car_search_url(base_car_search_url: str, car_search_filter: CarSearchFilter) -> str:
+    def _get_car_search_url(base_car_search_url: str, car_search_filter: CarSearchFilter) -> str:
         car_search_url = base_car_search_url
         car_search_url_parameters = car_search_filter.get_url_parameters()
-        if (len(car_search_url_parameters) > 0):
+        if len(car_search_url_parameters) > 0:
             car_search_url += f'?{"&".join(car_search_url_parameters)}'
         return car_search_url
-    
-    def find(self, car_search_filter: CarSearchFilter) -> Set[str]:
-        with Yad2CarFinder.__start_chrome_driver(Yad2CarFinder.__CHROME_ARGUMENTS) as chrome_driver:
-            logging.info("ChromeDriver has been started!")
 
-            # Loading the initial page
-            def load_initial_page():
-                car_search_url = Yad2CarFinder.__get_car_search_url(Yad2CarFinder.__BASE_CAR_SEARCH_URL, car_search_filter)
-                chrome_driver.get(car_search_url)
-            Yad2CarFinder.__execute_and_wait(
-                lambda: Yad2CarFinder.__execute_verbosely("Loading initial page...", load_initial_page),
-                Yad2CarFinder.__FETCHING_INTERVAL_IN_SECONDS
+    @staticmethod
+    async def _query_elements(tab: uc.Tab, css_selector: str) -> list:
+        """Run a CSS selector query via CDP and return matching elements."""
+        return await tab.query_selector_all(css_selector)
+
+    @staticmethod
+    async def _poll_for_elements(
+        tab: uc.Tab, css_selector: str, timeout: int, poll_interval: float = 1
+    ) -> list:
+        """Poll for elements matching a CSS selector until found or timeout."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            elements = await Yad2CarFinder._query_elements(tab, css_selector)
+            if elements:
+                return elements
+            await tab.sleep(poll_interval)
+        return []
+
+    @staticmethod
+    async def _wait_for_feed_items(
+        tab: uc.Tab, timeout: int, captcha_timeout: int, poll_interval: float = 1
+    ) -> None:
+        """Wait for feed items to appear, with a fallback for manual captcha solving."""
+        elements = await Yad2CarFinder._poll_for_elements(
+            tab, Yad2CarFinder._FEED_ITEM_SELECTOR, timeout, poll_interval
+        )
+        if elements:
+            return
+
+        logging.warning(
+            f"Feed items not found within {timeout}s — you may need to solve a CAPTCHA "
+            f"in the browser. Waiting up to {captcha_timeout}s..."
+        )
+        elements = await Yad2CarFinder._poll_for_elements(
+            tab, Yad2CarFinder._FEED_ITEM_SELECTOR, captcha_timeout, poll_interval
+        )
+        if elements:
+            logging.info("Feed items appeared after captcha was solved!")
+            return
+
+        raise CustomException(
+            f"Feed items not found after {captcha_timeout}s captcha timeout",
+            ErrorCode.CAPTCHA_TIMEOUT,
+        )
+
+    @staticmethod
+    async def _fetch_page_results(tab: uc.Tab, result_urls: set[str]) -> None:
+        base_url = "https://www.yad2.co.il/vehicles/cars/"
+        feed_links = await Yad2CarFinder._query_elements(tab, Yad2CarFinder._FEED_ITEM_SELECTOR)
+        for link_element in feed_links:
+            href = link_element.attrs.get("href")
+            if href:
+                clean_href = href.split("?")[0]
+                if not clean_href.startswith("http"):
+                    clean_href = base_url + clean_href.lstrip("/")
+                result_urls.add(clean_href)
+
+    async def find(self, car_search_filter: CarSearchFilter) -> set[str]:
+        browser = await Yad2CarFinder._start_browser(Yad2CarFinder._CHROME_ARGUMENTS)
+        try:
+            logging.info("Browser has been started!")
+
+            car_search_url = Yad2CarFinder._get_car_search_url(
+                Yad2CarFinder._BASE_CAR_SEARCH_URL, car_search_filter
             )
 
-            # Closing the advertisement popup
-            def close_advertisement_popup():
-                try:
-                    advertisement_popup_iframe_element = chrome_driver.find_element(By.XPATH, "//iframe[@title = 'Modal Message']")
-                    chrome_driver.switch_to.frame(advertisement_popup_iframe_element)
-                    advertisement_popup_close_button_element = chrome_driver.find_element(By.XPATH, "//*[contains(@class, 'bz-close-btn')]")
-                    advertisement_popup_close_button_element.click()
-                    chrome_driver.switch_to.default_content()
-                except NoSuchElementException:
-                    pass
+            logging.info("Loading initial page...")
+            tab = await browser.get(car_search_url)
+            await tab.sleep(Yad2CarFinder._FETCHING_INTERVAL_IN_SECONDS)
+            logging.info("SUCCESS!")
 
-            Yad2CarFinder.__execute_verbosely("Closing advertisement popup...", close_advertisement_popup)
+            logging.info("Closing advertisement popup...")
+            try:
+                popup_iframe = await Yad2CarFinder._poll_for_elements(
+                    tab, "iframe[title='Modal Message']", timeout=3
+                )
+                if popup_iframe:
+                    close_btn = await popup_iframe[0].query_selector(".bz-close-btn")
+                    if close_btn:
+                        await close_btn.click()
+                logging.info("SUCCESS!")
+            except Exception:
+                logging.info("No popup found, continuing...")
 
-            pagination_navbar = chrome_driver.find_element(By.XPATH, "//nav[@data-nagish='pagination-navbar']")
-            pages_list = pagination_navbar.find_element(By.TAG_NAME, 'ol')
-            pages = pages_list.find_elements(By.TAG_NAME, 'li')
+            await Yad2CarFinder._wait_for_feed_items(
+                tab,
+                Yad2CarFinder._PAGE_LOAD_TIMEOUT_IN_SECONDS,
+                Yad2CarFinder._CAPTCHA_TIMEOUT_IN_SECONDS,
+                Yad2CarFinder._POLL_INTERVAL_IN_SECONDS,
+            )
 
-            page_urls = [page.find_element(By.TAG_NAME, "a").get_attribute("href") for page in pages]
-            page_urls = page_urls[:Yad2CarFinder.__MAX_SEARCH_RESULT_PAGES_TO_FETCH]
+            max_pages = 1
+            try:
+                pagination = await Yad2CarFinder._query_elements(
+                    tab, f"{Yad2CarFinder._PAGINATION_SELECTOR} ol li a"
+                )
+                if pagination:
+                    last_text = pagination[-1].text.strip()
+                    if last_text.isdigit():
+                        max_pages = int(last_text)
+                        logging.info(f"Found {max_pages} pages of results")
+            except (ValueError, Exception):
+                logging.info("No pagination found, assuming single page of results")
 
-            # Walking through the search-result pages and fetching results
-            result_urls: Set[str] = set()
-            for i, url in enumerate(page_urls, start=1):
-                def get_page():
-                    chrome_driver.get(url)
-                Yad2CarFinder.__execute_verbosely(f"Getting page {i}...", get_page)
+            result_urls: set[str] = set()
 
-                def fetch_results():
-                    result_item_elements = chrome_driver.find_elements(By.XPATH, "//div[contains(@class, 'feed-item-base_feedItemBox')]")
-                    for result_item_element in result_item_elements:
-                        result_item_element_link = result_item_element.find_element(By.TAG_NAME, "a").get_attribute("href").split("?")[0]
-                        result_urls.add(result_item_element_link)
-                Yad2CarFinder.__execute_verbosely(f"Fetching results [page {i}/{len(page_urls)}]...", fetch_results)
+            for page_number in range(1, max_pages + 1):
+                if page_number > 1:
+                    separator = "?" if car_search_url == Yad2CarFinder._BASE_CAR_SEARCH_URL else "&"
+                    page_url = f"{car_search_url}{separator}page={page_number}"
 
-            logging.info("ChromeDriver has been terminated!")
+                    logging.info(f"Getting page {page_number}...")
+                    await tab.get(page_url)
+                    await tab.sleep(Yad2CarFinder._FETCHING_INTERVAL_IN_SECONDS)
+                    logging.info("SUCCESS!")
+
+                    await Yad2CarFinder._wait_for_feed_items(
+                        tab,
+                        Yad2CarFinder._PAGE_LOAD_TIMEOUT_IN_SECONDS,
+                        Yad2CarFinder._CAPTCHA_TIMEOUT_IN_SECONDS,
+                        Yad2CarFinder._POLL_INTERVAL_IN_SECONDS,
+                    )
+
+                logging.info(f"Fetching results [page {page_number}/{max_pages}]...")
+                await Yad2CarFinder._fetch_page_results(tab, result_urls)
+                logging.info("SUCCESS!")
+
+            logging.info("Browser has been terminated!")
             logging.info(f"Collected {len(result_urls)} results")
             return result_urls
+        finally:
+            browser.stop()
