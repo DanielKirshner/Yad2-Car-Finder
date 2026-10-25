@@ -1,6 +1,3 @@
-from common.config import Configuration
-from common.exceptions import CustomException, ErrorCode
-from common.logger import logger
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -27,6 +24,9 @@ from bot.handlers import (
     year_max_callback,
     year_min_callback,
 )
+from common.config import Configuration
+from common.exceptions import CustomException, ErrorCode
+from common.logger import logger
 
 
 def create_bot() -> Application:

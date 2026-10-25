@@ -2,7 +2,7 @@
 Telegram bot that scrapes [Yad2](https://www.yad2.co.il/vehicles/cars) for car listings based on your filters and sends you notifications when new cars appear
 
 ## Features
-- **Interactive configuration** - configure manufacturer, model, year range via inline keyboard buttons in Telegram
+- **Interactive configuration** - configure manufacturer, model, year range via inline keyboard buttons in Telegram (models are fetched live from Yad2 for the selected manufacturers)
 - **Periodic scanning** - automatically checks for new listings every X minutes (configurable: 5/10/15/30/60) or run a one-time scan
 - **Smart notifications** - first scan sends all found listings, subsequent scans only notify about new ones
 - **Structured logging** - colored console output with structured JSON kwargs, configurable log level via `LOG_LEVEL` env var

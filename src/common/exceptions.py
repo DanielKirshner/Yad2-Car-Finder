@@ -17,6 +17,7 @@ class ErrorCode(IntEnum):
     INVALID_FILTER = 11
     TELEGRAM_SEND_FAILED = 12
     ENV_CONFIG_MISSING = 13
+    MODELS_FETCH_FAILED = 14
 
 
 class CustomException(Exception):
