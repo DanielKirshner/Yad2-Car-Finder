@@ -1,10 +1,8 @@
 from typing import NamedTuple
 
-from car.car_search_filter import CarSearchFilter
-from common.logger import logger
-from common.range import Range
-from telegram import Update
+from telegram import CallbackQuery, Update
 from telegram.ext import ContextTypes, ConversationHandler
+from telegram.helpers import escape_markdown
 
 from bot.keyboards import (
     build_confirm_keyboard,
@@ -16,6 +14,11 @@ from bot.keyboards import (
     build_year_min_keyboard,
 )
 from bot.scanner import Scanner
+from car.car_model_catalog import CarModelCatalog
+from car.car_search_filter import CarSearchFilter
+from common.exceptions import CustomException
+from common.logger import logger
+from common.range import Range
 
 (
     SELECTING_MANUFACTURER,
@@ -29,6 +32,7 @@ from bot.scanner import Scanner
 JOB_NAME_PREFIX = "scan_"
 
 scanner = Scanner()
+model_catalog = CarModelCatalog()
 
 
 class TelegramUserInfo(NamedTuple):
@@ -89,6 +93,8 @@ async def search_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     context.chat_data["selected_manufacturers"] = set()
     context.chat_data["selected_models"] = set()
+    context.chat_data["available_models"] = []
+    context.chat_data["model_page"] = 0
     context.chat_data["year_min"] = None
     context.chat_data["year_max"] = None
     context.chat_data["scan_interval"] = 10
@@ -129,12 +135,19 @@ async def manufacturer_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer("Please select at least one manufacturer!", show_alert=True)
             return SELECTING_MANUFACTURER
 
+        manufacturers = [CarSearchFilter.Manufacturer(value) for value in selected]
+        try:
+            models = await model_catalog.get_models(manufacturers)
+        except CustomException as e:
+            logger.error("Failed to load models", **_user_context(update), error=e.message)
+            await query.answer("Couldn't load models from Yad2, please try again.", show_alert=True)
+            return SELECTING_MANUFACTURER
+
         await query.answer()
-        await query.edit_message_text(
-            "Select model(s), or tap *Skip* / *Next*:",
-            parse_mode="Markdown",
-            reply_markup=build_model_keyboard(set()),
-        )
+        context.chat_data["available_models"] = models
+        context.chat_data["selected_models"] = set()
+        context.chat_data["model_page"] = 0
+        await _show_model_keyboard(query, context.chat_data)
         return SELECTING_MODEL
 
     await query.answer()
@@ -151,15 +164,19 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         value = int(data.split(":")[1])
         selected.symmetric_difference_update({value})
         context.chat_data["selected_models"] = selected
-        await query.edit_message_text(
-            "Select model(s), or tap *Skip* / *Next*:",
-            parse_mode="Markdown",
-            reply_markup=build_model_keyboard(selected),
-        )
+        await _show_model_keyboard(query, context.chat_data)
+        return SELECTING_MODEL
+
+    if data.startswith("mdl_page:"):
+        await query.answer()
+        context.chat_data["model_page"] = int(data.split(":")[1])
+        await _show_model_keyboard(query, context.chat_data)
         return SELECTING_MODEL
 
     if data in ("mdl_done", "mdl_skip"):
         await query.answer()
+        if data == "mdl_skip":
+            context.chat_data["selected_models"] = set()
         await query.edit_message_text(
             "Select minimum year, or tap *Skip*:",
             parse_mode="Markdown",
@@ -169,6 +186,22 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await query.answer()
     return SELECTING_MODEL
+
+
+async def _show_model_keyboard(query: CallbackQuery, chat_data: dict) -> None:
+    models = chat_data.get("available_models", [])
+    text = (
+        "Select model(s), or tap *Skip* / *Next*:"
+        if models
+        else "No models found for the selected manufacturer(s), tap *Skip* / *Next*:"
+    )
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=build_model_keyboard(
+            models, chat_data.get("selected_models", set()), chat_data.get("model_page", 0)
+        ),
+    )
 
 
 async def year_min_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -292,10 +325,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 f"Use /status to check current configuration."
             )
         else:
-            msg = (
-                "✅ Running a one-time scan now...\n"
-                "Use /status to check results."
-            )
+            msg = "✅ Running a one-time scan now...\nUse /status to check results."
 
         await query.edit_message_text(msg)
         return ConversationHandler.END
@@ -377,9 +407,7 @@ def _build_car_filter(chat_data: dict) -> CarSearchFilter:
         for m in CarSearchFilter.Manufacturer
         if m.value in chat_data.get("selected_manufacturers", set())
     ]
-    models = [
-        m for m in CarSearchFilter.Model if m.value in chat_data.get("selected_models", set())
-    ]
+    models = sorted(chat_data.get("selected_models", set()))
 
     year_min = chat_data.get("year_min")
     year_max = chat_data.get("year_max")
@@ -402,17 +430,15 @@ def _build_filter_summary(chat_data: dict) -> str:
 
     mfr_values = chat_data.get("selected_manufacturers", set())
     if mfr_values:
-        names = [
-            m.name.replace("_", " ").title()
-            for m in CarSearchFilter.Manufacturer
-            if m.value in mfr_values
-        ]
+        names = [m.display_name for m in CarSearchFilter.Manufacturer if m.value in mfr_values]
         lines.append(f"🏭 Manufacturers: {', '.join(names)}")
 
     mdl_values = chat_data.get("selected_models", set())
     if mdl_values:
         names = [
-            m.name.replace("_", " ").title() for m in CarSearchFilter.Model if m.value in mdl_values
+            escape_markdown(m.name)
+            for m in chat_data.get("available_models", [])
+            if m.value in mdl_values
         ]
         lines.append(f"🚙 Models: {', '.join(names)}")
 

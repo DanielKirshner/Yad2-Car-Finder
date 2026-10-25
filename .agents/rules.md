@@ -54,6 +54,7 @@ src/
   car/
     car_finder.py            # browser automation (nodriver)
     car_search_filter.py     # search filter params & enums
+    car_model_catalog.py     # fetches & caches manufacturer models from Yad2 API
     cars_link_retriever.py   # orchestrates finder
   common/
     config.py                # bot config (from .env), logger config, paths
@@ -64,6 +65,7 @@ src/
 
 ## Yad2 Domain Context
 - Target site: `https://www.yad2.co.il/vehicles/cars`
+- Models per manufacturer come from `https://gw.yad2.co.il/search-options/vehicles/cars?fields=model&manufacturer=<id>` (cached in memory for 24h)
 - Feed items use `data-nagish` attributes (stable selectors)
 - Results feed items: `a[data-nagish='private-item-link']`, `a[data-nagish='agent-item-link']`, `a[data-nagish='agent-item-no-footer-link']`
 - Page load indicator: `a[data-nagish='feed-item-card-link']` (carousel/recommendations load first)
