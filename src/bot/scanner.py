@@ -1,10 +1,11 @@
 import asyncio
 
+from telegram.ext import ContextTypes
+
 from car.car_search_filter import CarSearchFilter
 from car.cars_link_retriever import CarsLinkRetriever
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
-from telegram.ext import ContextTypes
 
 URLS_PER_MESSAGE = 10
 
@@ -64,7 +65,7 @@ class Scanner:
             results = await asyncio.to_thread(_run_scraper_sync, car_filter) or []
             logger.info("Scan completed", chat_id=chat_id, results_count=len(results))
         except CustomException as e:
-            logger.error("Scan failed", chat_id=chat_id, error_code=e.error_code, message=e.message)
+            logger.error("Scan failed", chat_id=chat_id, error_code=e.error_code, error=e.message)
             await self._send_safe(context, chat_id, f"⚠️ Scan failed: {e.message}")
             return
         except Exception as e:

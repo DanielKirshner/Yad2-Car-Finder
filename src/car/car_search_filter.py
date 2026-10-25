@@ -4,12 +4,14 @@ from enum import IntEnum, StrEnum
 
 from common.range import Range
 
+_MANUFACTURER_DISPLAY_NAME_OVERRIDES = {"BMW": "BMW", "MERCEDES_BENZ": "Mercedes-Benz"}
+
 
 class CarSearchFilter:
     class Manufacturer(IntEnum):
         AUDI = 1
         OPEL = 2
-        ALPHA_ROMEO = 5
+        ALFA_ROMEO = 5
         BMW = 7
         HONDA = 17
         TOYOTA = 19
@@ -17,7 +19,7 @@ class CarSearchFilter:
         MAZDA = 27
         MITSUBISHI = 30
         MERCEDES_BENZ = 31
-        NISAN = 32
+        NISSAN = 32
         SUBARU = 35
         SUZUKI = 36
         SEAT = 37
@@ -26,9 +28,11 @@ class CarSearchFilter:
         FIAT = 45
         KIA = 48
 
-    class Model(IntEnum):
-        PICANTO = 10711
-        C3 = 10517
+        @property
+        def display_name(self) -> str:
+            if self.name in _MANUFACTURER_DISPLAY_NAME_OVERRIDES:
+                return _MANUFACTURER_DISPLAY_NAME_OVERRIDES[self.name]
+            return self.name.replace("_", " ").title()
 
     class GearBox(IntEnum):
         MANUAL = 101
@@ -57,13 +61,14 @@ class CarSearchFilter:
         IMAGE_ONLY = "imgOnly"
 
     @staticmethod
-    def get_selections_as_string(selections: list[IntEnum]) -> str:
-        return ",".join(str(s.value) for s in selections)
+    def get_selections_as_string(selections: list[int]) -> str:
+        return ",".join(str(int(s)) for s in selections)
 
     def __init__(
         self,
+        *,
         manufacturers: list[Manufacturer] | None = None,
-        models: list[Model] | None = None,
+        models: list[int] | None = None,
         gear_boxes: list[GearBox] | None = None,
         year_range: Range | None = None,
         hand_range: Range | None = None,

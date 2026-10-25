@@ -94,8 +94,14 @@ class LoggerSetup:
             logging.getLogger().addHandler(console_handler)
 
             for lib in (
-                "httpx", "httpcore", "apscheduler", "nodriver", "uc",
-                "telegram", "asyncio", "websockets",
+                "httpx",
+                "httpcore",
+                "apscheduler",
+                "nodriver",
+                "uc",
+                "telegram",
+                "asyncio",
+                "websockets",
             ):
                 logging.getLogger(lib).setLevel(logging.WARNING)
 

@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class FileMode(str, Enum):
+class FileMode(StrEnum):
     READ = "r"
     WRITE = "w"
     APPEND = "a"

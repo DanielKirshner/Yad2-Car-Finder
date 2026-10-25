@@ -1,6 +1,7 @@
 import time
 
 import nodriver as uc
+
 from car.car_search_filter import CarSearchFilter
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
@@ -42,7 +43,7 @@ class Yad2CarFinder:
         car_search_url = base_car_search_url
         car_search_url_parameters = car_search_filter.get_url_parameters()
         if len(car_search_url_parameters) > 0:
-            car_search_url += f'?{"&".join(car_search_url_parameters)}'
+            car_search_url += f"?{'&'.join(car_search_url_parameters)}"
         return car_search_url
 
     @staticmethod
