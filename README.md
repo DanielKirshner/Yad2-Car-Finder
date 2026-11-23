@@ -10,6 +10,16 @@ Telegram bot that scrapes [Yad2](https://www.yad2.co.il/vehicles/cars) for car l
 
 ## Setup
 
+### Docker
+
+```bash
+cp .env.example .env   # then set TELEGRAM_BOT_TOKEN
+docker compose up -d --build
+docker compose logs -f bot
+```
+
+The image includes Chromium, which runs on a virtual display. Set `BOT_MEMORY_LIMIT` and `BOT_CPU_LIMIT` in `.env` to change the resource limits (2 GB and 2 CPUs by default). Logs are kept in the `logs` volume. To run without Docker instead:
+
 ### Prerequisites
 
 - Python 3.12+

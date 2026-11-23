@@ -1,0 +1,5 @@
+*
+!requirements.txt
+!docker/entrypoint.sh
+!src
+**/__pycache__

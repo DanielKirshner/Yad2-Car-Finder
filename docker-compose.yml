@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    image: yad2-car-finder
+    restart: unless-stopped
+    # Reaps the processes Chrome leaves behind.
+    init: true
+    env_file: .env
+    # Chrome crashes with Docker's default of 64 MB.
+    shm_size: 512mb
+    mem_limit: ${BOT_MEMORY_LIMIT:-2g}
+    cpus: ${BOT_CPU_LIMIT:-2}
+    volumes:
+      - logs:/app/logs
+
+volumes:
+  logs:

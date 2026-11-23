@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 
 import nodriver as uc
 
+from common.config import Configuration
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
 
@@ -46,7 +47,11 @@ async def open_browser() -> AsyncIterator[uc.Browser]:
 
 async def _start(profile_dir: str) -> uc.Browser:
     try:
-        browser = await uc.start(browser_args=CHROME_ARGUMENTS, user_data_dir=profile_dir)
+        browser = await uc.start(
+            browser_args=CHROME_ARGUMENTS,
+            user_data_dir=profile_dir,
+            sandbox=Configuration.Browser.SANDBOX,
+        )
     except Exception as err:
         raise CustomException(
             message=f"Failed to start browser: {err}",
