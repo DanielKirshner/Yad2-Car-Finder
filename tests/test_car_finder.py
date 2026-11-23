@@ -54,7 +54,7 @@ def find(monkeypatch):
     monkeypatch.setattr(Yad2CarFinder, "_CAPTCHA_TIMEOUT_IN_SECONDS", 0.05)
 
     def run(browser: FakeBrowser) -> set[str]:
-        async def start(browser_args: list[str], user_data_dir: str) -> FakeBrowser:
+        async def start(user_data_dir: str, **_options: object) -> FakeBrowser:
             browser.profile_dir = user_data_dir
             return browser
 

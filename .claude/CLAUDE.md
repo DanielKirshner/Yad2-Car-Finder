@@ -52,6 +52,8 @@ src/
     logger.py                # StructuredLogger and its setup
     range.py                 # Yad2 URL ranges
 tests/                       # pytest, without network access
+Dockerfile, docker/          # image with Chromium on a virtual display
+docker-compose.yml           # runs the bot from .env
 ```
 
 `src` is the import root: write `from common.logger import logger`, not `from src.common...`.

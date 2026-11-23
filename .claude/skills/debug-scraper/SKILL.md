@@ -51,5 +51,7 @@ that has `pagination: {pages, perPage, total}` (2026-11-23).
 
 ## Containers
 
-Chrome needs a display (`xvfb-run -a`), an init process (`--init`, since `xvfb-run` hangs as PID 1),
-`sandbox=False` in nodriver and at least 256 MB of `/dev/shm`.
+`docker compose up` runs the bot the way users do. Without it: `podman build --format docker -t yad2-car-finder .`
+and run it with `--init --shm-size 512m`. Chrome needs a display (`docker/entrypoint.sh` starts Xvfb) and
+`CHROME_SANDBOX=false`. `xvfb-run` hangs as PID 1 and does not pass on the stop signal, so it is not
+used in the image.

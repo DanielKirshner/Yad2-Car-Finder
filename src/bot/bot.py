@@ -1,7 +1,10 @@
+from pathlib import Path
+
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
     ConversationHandler,
 )
 
@@ -27,6 +30,11 @@ from bot.handlers import (
 from common.config import Configuration
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
+
+
+async def _heartbeat(_context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tell the container's health check that the event loop is running."""
+    Path(Configuration.Bot.HEARTBEAT_FILE).touch()
 
 
 def create_bot() -> Application:
@@ -76,6 +84,11 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("stop", stop_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_error_handler(error_handler)
+
+    if Configuration.Bot.HEARTBEAT_FILE:
+        app.job_queue.run_repeating(
+            _heartbeat, interval=Configuration.Bot.HEARTBEAT_INTERVAL_IN_SECONDS, first=0
+        )
 
     logger.info("Bot handlers registered successfully")
     return app
