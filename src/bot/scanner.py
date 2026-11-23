@@ -11,13 +11,11 @@ URLS_PER_MESSAGE = 10
 
 
 def _run_scraper_sync(car_filter: CarSearchFilter) -> list[str]:
-    """Run the scraper in a dedicated event loop (called from a background thread)."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(CarsLinkRetriever.retrieve_urls(car_filter))
-    finally:
-        loop.close()
+    """Run the scraper in a dedicated event loop (called from a background thread).
+
+    asyncio.run cancels the listener tasks nodriver leaves behind before it closes the loop.
+    """
+    return asyncio.run(CarsLinkRetriever.retrieve_urls(car_filter))
 
 
 class Scanner:
