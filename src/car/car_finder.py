@@ -1,204 +1,164 @@
+"""Collects the results of a Yad2 car search with a real browser."""
+
+import asyncio
+import json
 import time
+from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlsplit
 
 import nodriver as uc
+from nodriver.core.connection import ProtocolException
 
+from car.browser import open_browser
 from car.car_search_filter import CarSearchFilter
+from car.yad2_feed import FeedPage, parse_feed
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
 
+YAD2_HOST = "www.yad2.co.il"
+SEARCH_URL = f"https://{YAD2_HOST}/vehicles/cars"
+
+
+@dataclass(frozen=True)
+class PageSnapshot:
+    """What a browser tab shows right now."""
+
+    url: str = ""
+    queries: list[dict] = field(default_factory=list)
+
+    @property
+    def is_yad2(self) -> bool:
+        """Whether the tab is on Yad2, and not on its bot check or still blank."""
+        return urlsplit(self.url).hostname == YAD2_HOST
+
+    @property
+    def page_number(self) -> int:
+        """Number of the results page in the tab's URL."""
+        page = parse_qs(urlsplit(self.url).query).get("page", ["1"])[0]
+        return int(page) if page.isdigit() else 1
+
 
 class Yad2CarFinder:
-    _CHROME_ARGUMENTS = [
-        "--disable-gpu",
-        "--window-size=1920,1080",
-        "--mute-audio",
-    ]  # TODO: Add headless mode
-    _BASE_CAR_SEARCH_URL = "https://www.yad2.co.il/vehicles/cars"
-    _BASE_URL = "https://www.yad2.co.il"
-    _FETCHING_INTERVAL_IN_SECONDS = 1
+    """Finds the ads that match a search filter."""
+
+    _PAGE_INTERVAL_IN_SECONDS = 1
     _PAGE_LOAD_TIMEOUT_IN_SECONDS = 15
     _CAPTCHA_TIMEOUT_IN_SECONDS = 120
     _POLL_INTERVAL_IN_SECONDS = 1
+    _SCAN_TIMEOUT_IN_SECONDS = 15 * 60
 
-    _RESULTS_FEED_SELECTOR = (
-        "a[data-nagish='private-item-link'], "
-        "a[data-nagish='agent-item-link'], "
-        "a[data-nagish='agent-item-no-footer-link']"
-    )
-    _PAGE_LOADED_SELECTOR = "a[data-nagish='feed-item-card-link']"
-    _PAGINATION_SELECTOR = "nav[data-nagish='pagination-navbar']"
-
-    @staticmethod
-    async def _start_browser(chrome_arguments: list[str]) -> uc.Browser:
-        try:
-            return await uc.start(browser_args=chrome_arguments)
-        except Exception as e:
-            raise CustomException(
-                f"Failed to start browser: {e}",
-                ErrorCode.BROWSER_START_FAILED,
-            ) from e
-
-    @staticmethod
-    def _get_car_search_url(base_car_search_url: str, car_search_filter: CarSearchFilter) -> str:
-        car_search_url = base_car_search_url
-        car_search_url_parameters = car_search_filter.get_url_parameters()
-        if len(car_search_url_parameters) > 0:
-            car_search_url += f"?{'&'.join(car_search_url_parameters)}"
-        return car_search_url
-
-    @staticmethod
-    async def _query_elements(tab: uc.Tab, css_selector: str) -> list:
-        """Run a CSS selector query via CDP and return matching elements."""
-        return await tab.query_selector_all(css_selector)
-
-    @staticmethod
-    async def _poll_for_elements(
-        tab: uc.Tab, css_selector: str, timeout: int, poll_interval: float = 1
-    ) -> list:
-        """Poll for elements matching a CSS selector until found or timeout."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            elements = await Yad2CarFinder._query_elements(tab, css_selector)
-            if elements:
-                return elements
-            await tab.sleep(poll_interval)
-        return []
-
-    @staticmethod
-    async def _wait_for_page_load(
-        tab: uc.Tab, timeout: int, captcha_timeout: int, poll_interval: float = 1
-    ) -> None:
-        """Wait for page content to appear, with a fallback for manual captcha solving."""
-        elements = await Yad2CarFinder._poll_for_elements(
-            tab, Yad2CarFinder._PAGE_LOADED_SELECTOR, timeout, poll_interval
-        )
-        if elements:
-            return
-
-        logger.warning(
-            "Feed items not found, possible CAPTCHA",
-            timeout=timeout,
-            captcha_timeout=captcha_timeout,
-        )
-        elements = await Yad2CarFinder._poll_for_elements(
-            tab, Yad2CarFinder._PAGE_LOADED_SELECTOR, captcha_timeout, poll_interval
-        )
-        if elements:
-            logger.info("Feed items appeared after captcha was solved")
-            return
-
-        raise CustomException(
-            f"Feed items not found after {captcha_timeout}s captcha timeout",
-            ErrorCode.CAPTCHA_TIMEOUT,
-        )
-
-    @staticmethod
-    async def _scroll_to_results_feed(tab: uc.Tab) -> None:
-        """Scroll down to trigger lazy loading of the actual results feed."""
-        for _ in range(5):
-            await tab.evaluate("window.scrollBy(0, 2000)")
-            await tab.sleep(0.5)
-
-    @staticmethod
-    async def _fetch_page_results(tab: uc.Tab, result_urls: set[str]) -> None:
-        feed_links = await Yad2CarFinder._query_elements(tab, Yad2CarFinder._RESULTS_FEED_SELECTOR)
-        for link_element in feed_links:
-            href = link_element.attrs.get("href")
-            if not href:
-                continue
-            if "spot=look_alike" in href:
-                continue
-            clean_href = href.split("?")[0]
-            if not clean_href.startswith("http"):
-                clean_href = Yad2CarFinder._BASE_URL + "/" + clean_href.lstrip("/")
-            result_urls.add(clean_href)
+    _SNAPSHOT_EXPRESSION = """(() => {
+        const element = document.getElementById("__NEXT_DATA__");
+        const data = element ? JSON.parse(element.textContent) : {};
+        const queries = data?.props?.pageProps?.dehydratedState?.queries || [];
+        return JSON.stringify({
+            url: location.href,
+            queries: queries.filter(query => String(query.queryKey?.[0]).startsWith("feed")),
+        });
+    })()"""
 
     async def find(self, car_search_filter: CarSearchFilter) -> set[str]:
-        browser = await Yad2CarFinder._start_browser(Yad2CarFinder._CHROME_ARGUMENTS)
+        """Collect the URLs of every ad that matches the filter.
+
+        Args:
+            car_search_filter: What to search for
+
+        Returns:
+            The URLs of the ads, empty if nothing matches
+
+        Raises:
+            CustomException: If the browser or a results page fails to load, or the scan hangs
+        """
+        search_url = self._build_search_url(car_search_filter)
+        async with open_browser() as browser:
+            try:
+                async with asyncio.timeout(self._SCAN_TIMEOUT_IN_SECONDS):
+                    urls = await self._collect_urls(browser, search_url)
+            except TimeoutError as err:
+                raise CustomException(
+                    message=f"Scan did not finish within {self._SCAN_TIMEOUT_IN_SECONDS}s",
+                    error_code=ErrorCode.SCAN_FAILED,
+                ) from err
+
+        logger.info("Scraping complete", results_collected=len(urls))
+        return urls
+
+    @staticmethod
+    def _build_search_url(car_search_filter: CarSearchFilter) -> str:
+        parameters = car_search_filter.get_url_parameters()
+        return f"{SEARCH_URL}?{'&'.join(parameters)}" if parameters else SEARCH_URL
+
+    @staticmethod
+    def _build_page_url(search_url: str, page_number: int) -> str:
+        if page_number == 1:
+            return search_url
+        separator = "&" if "?" in search_url else "?"
+        return f"{search_url}{separator}page={page_number}"
+
+    async def _collect_urls(self, browser: uc.Browser, search_url: str) -> set[str]:
+        """Collect the ads of every results page."""
+        first_page = await self._load_page(browser, search_url, page_number=1)
+        urls = set(first_page.urls)
+        for page_number in range(2, first_page.pages + 1):
+            page = await self._load_page(browser, search_url, page_number)
+            urls |= page.urls
+
+        if len(urls) < first_page.total:
+            logger.warning(
+                "Collected fewer results than Yad2 reports",
+                collected=len(urls),
+                reported=first_page.total,
+            )
+        return urls
+
+    async def _load_page(self, browser: uc.Browser, search_url: str, page_number: int) -> FeedPage:
+        url = self._build_page_url(search_url, page_number)
+        logger.info("Loading page", page=page_number, url=url)
+        tab = await browser.get(url)
+        await asyncio.sleep(self._PAGE_INTERVAL_IN_SECONDS)
+
+        feed = await self._wait_for_feed(tab, page_number)
+        logger.info("Page scraped", page=f"{page_number}/{feed.pages}", results=len(feed.urls))
+        return feed
+
+    async def _wait_for_feed(self, tab: uc.Tab, page_number: int) -> FeedPage:
+        """Wait for the page's results, with extra time to solve a captcha manually."""
+        feed = await self._poll_feed(tab, page_number, self._PAGE_LOAD_TIMEOUT_IN_SECONDS)
+        if feed is None:
+            logger.warning("Results did not load, possible CAPTCHA", page=page_number)
+            feed = await self._poll_feed(tab, page_number, self._CAPTCHA_TIMEOUT_IN_SECONDS)
+        if feed is None:
+            raise self._get_load_error(await self._take_snapshot(tab))
+        return feed
+
+    async def _poll_feed(self, tab: uc.Tab, page_number: int, timeout: float) -> FeedPage | None:
+        """Read the page until it has results, or return None after `timeout` seconds."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snapshot = await self._take_snapshot(tab)
+            # The tab still shows the previous page while the next one loads.
+            if snapshot.is_yad2 and snapshot.page_number == page_number:
+                feed = parse_feed(snapshot.queries)
+                if feed is not None:
+                    return feed
+            await asyncio.sleep(self._POLL_INTERVAL_IN_SECONDS)
+        return None
+
+    async def _take_snapshot(self, tab: uc.Tab) -> PageSnapshot:
+        """Read the tab's URL and embedded data, or an empty snapshot while it is loading."""
         try:
-            logger.info("Browser started")
+            return PageSnapshot(**json.loads(await tab.evaluate(self._SNAPSHOT_EXPRESSION)))
+        except (ProtocolException, TypeError, ValueError):
+            return PageSnapshot()
 
-            car_search_url = Yad2CarFinder._get_car_search_url(
-                Yad2CarFinder._BASE_CAR_SEARCH_URL, car_search_filter
+    @staticmethod
+    def _get_load_error(snapshot: PageSnapshot) -> CustomException:
+        if snapshot.is_yad2:
+            return CustomException(
+                message="Yad2's page has no results data",
+                error_code=ErrorCode.FEED_ITEMS_NOT_FOUND,
             )
-
-            logger.info("Loading page", url=car_search_url)
-            tab = await browser.get(car_search_url)
-            await tab.sleep(Yad2CarFinder._FETCHING_INTERVAL_IN_SECONDS)
-            logger.info("Page loaded")
-
-            try:
-                popup_iframe = await Yad2CarFinder._poll_for_elements(
-                    tab, "iframe[title='Modal Message']", timeout=3
-                )
-                if popup_iframe:
-                    close_btn = await popup_iframe[0].query_selector(".bz-close-btn")
-                    if close_btn:
-                        await close_btn.click()
-                    logger.info("Closed advertisement popup")
-            except Exception:
-                pass
-
-            await Yad2CarFinder._wait_for_page_load(
-                tab,
-                Yad2CarFinder._PAGE_LOAD_TIMEOUT_IN_SECONDS,
-                Yad2CarFinder._CAPTCHA_TIMEOUT_IN_SECONDS,
-                Yad2CarFinder._POLL_INTERVAL_IN_SECONDS,
-            )
-
-            logger.info("Scrolling to load results feed")
-            await Yad2CarFinder._scroll_to_results_feed(tab)
-
-            results_found = await Yad2CarFinder._poll_for_elements(
-                tab, Yad2CarFinder._RESULTS_FEED_SELECTOR, timeout=10
-            )
-            if not results_found:
-                logger.warning("Results feed not found after scrolling")
-
-            max_pages = 1
-            try:
-                pagination = await Yad2CarFinder._query_elements(
-                    tab, f"{Yad2CarFinder._PAGINATION_SELECTOR} ol li a"
-                )
-                if pagination:
-                    last_text = pagination[-1].text.strip()
-                    if last_text.isdigit():
-                        max_pages = int(last_text)
-                        logger.info("Pagination detected", max_pages=max_pages)
-            except (ValueError, Exception):
-                logger.info("No pagination found, assuming single page")
-
-            result_urls: set[str] = set()
-
-            for page_number in range(1, max_pages + 1):
-                if page_number > 1:
-                    separator = "?" if car_search_url == Yad2CarFinder._BASE_CAR_SEARCH_URL else "&"
-                    page_url = f"{car_search_url}{separator}page={page_number}"
-
-                    logger.info("Loading page", page=page_number, url=page_url)
-                    await tab.get(page_url)
-                    await tab.sleep(Yad2CarFinder._FETCHING_INTERVAL_IN_SECONDS)
-
-                    await Yad2CarFinder._wait_for_page_load(
-                        tab,
-                        Yad2CarFinder._PAGE_LOAD_TIMEOUT_IN_SECONDS,
-                        Yad2CarFinder._CAPTCHA_TIMEOUT_IN_SECONDS,
-                        Yad2CarFinder._POLL_INTERVAL_IN_SECONDS,
-                    )
-
-                    await Yad2CarFinder._scroll_to_results_feed(tab)
-                    await Yad2CarFinder._poll_for_elements(
-                        tab, Yad2CarFinder._RESULTS_FEED_SELECTOR, timeout=10
-                    )
-
-                await Yad2CarFinder._fetch_page_results(tab, result_urls)
-                logger.info(
-                    "Page scraped",
-                    page=f"{page_number}/{max_pages}",
-                    total_results=len(result_urls),
-                )
-
-            logger.info("Scraping complete", results_collected=len(result_urls))
-            return result_urls
-        finally:
-            browser.stop()
+        return CustomException(
+            message="Yad2 did not load, its captcha may need to be solved",
+            error_code=ErrorCode.CAPTCHA_TIMEOUT,
+        )
