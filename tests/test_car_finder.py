@@ -10,7 +10,7 @@ from car.car_finder import Yad2CarFinder
 from car.car_search_filter import CarSearchFilter
 from common.exceptions import CustomException, ErrorCode
 
-SEARCH = CarSearchFilter(manufacturers=[CarSearchFilter.Manufacturer.KIA])
+SEARCH = CarSearchFilter(manufacturers=(CarSearchFilter.Manufacturer.KIA,))
 SEARCH_URL = "https://www.yad2.co.il/vehicles/cars?manufacturer=48"
 CAPTCHA_PAGE = json.dumps({"url": "https://validate.example.com/", "queries": []})
 
@@ -53,13 +53,13 @@ def find(monkeypatch):
     monkeypatch.setattr(Yad2CarFinder, "_PAGE_LOAD_TIMEOUT_IN_SECONDS", 0.05)
     monkeypatch.setattr(Yad2CarFinder, "_CAPTCHA_TIMEOUT_IN_SECONDS", 0.05)
 
-    def run(browser: FakeBrowser) -> set[str]:
+    def run(browser: FakeBrowser) -> list[str]:
         async def start(user_data_dir: str, **_options: object) -> FakeBrowser:
             browser.profile_dir = user_data_dir
             return browser
 
         monkeypatch.setattr(browser_module.uc, "start", start)
-        return asyncio.run(Yad2CarFinder().find(SEARCH))
+        return [listing.url for listing in asyncio.run(Yad2CarFinder().find(SEARCH))]
 
     return run
 
@@ -72,12 +72,12 @@ def test_collects_every_page_once(find):
         }
     )
 
-    assert {url.rsplit("/", 1)[1] for url in find(browser)} == {"a", "b", "c"}
+    assert [url.rsplit("/", 1)[1] for url in find(browser)] == ["a", "b", "c"]
     assert browser.visited == [SEARCH_URL, f"{SEARCH_URL}&page=2"]
 
 
 def test_search_without_results_is_not_a_failure(find):
-    assert find(FakeBrowser({SEARCH_URL: [_page(SEARCH_URL, [], pages=0)]})) == set()
+    assert find(FakeBrowser({SEARCH_URL: [_page(SEARCH_URL, [], pages=0)]})) == []
 
 
 def test_waits_for_the_page_and_a_solved_captcha(find):

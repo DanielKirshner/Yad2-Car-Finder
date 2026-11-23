@@ -10,6 +10,7 @@ import nodriver as uc
 from nodriver.core.connection import ProtocolException
 
 from car.browser import open_browser
+from car.car_listing import CarListing
 from car.car_search_filter import CarSearchFilter
 from car.yad2_feed import FeedPage, parse_feed
 from common.exceptions import CustomException, ErrorCode
@@ -57,14 +58,14 @@ class Yad2CarFinder:
         });
     })()"""
 
-    async def find(self, car_search_filter: CarSearchFilter) -> set[str]:
-        """Collect the URLs of every ad that matches the filter.
+    async def find(self, car_search_filter: CarSearchFilter) -> list[CarListing]:
+        """Collect every ad that matches the filter.
 
         Args:
             car_search_filter: What to search for
 
         Returns:
-            The URLs of the ads, empty if nothing matches
+            The ads without repeats, empty if nothing matches
 
         Raises:
             CustomException: If the browser or a results page fails to load, or the scan hangs
@@ -73,15 +74,15 @@ class Yad2CarFinder:
         async with open_browser() as browser:
             try:
                 async with asyncio.timeout(self._SCAN_TIMEOUT_IN_SECONDS):
-                    urls = await self._collect_urls(browser, search_url)
+                    listings = await self._collect_listings(browser, search_url)
             except TimeoutError as err:
                 raise CustomException(
                     message=f"Scan did not finish within {self._SCAN_TIMEOUT_IN_SECONDS}s",
                     error_code=ErrorCode.SCAN_FAILED,
                 ) from err
 
-        logger.info("Scraping complete", results_collected=len(urls))
-        return urls
+        logger.info("Scraping complete", results_collected=len(listings))
+        return listings
 
     @staticmethod
     def _build_search_url(car_search_filter: CarSearchFilter) -> str:
@@ -95,21 +96,21 @@ class Yad2CarFinder:
         separator = "&" if "?" in search_url else "?"
         return f"{search_url}{separator}page={page_number}"
 
-    async def _collect_urls(self, browser: uc.Browser, search_url: str) -> set[str]:
+    async def _collect_listings(self, browser: uc.Browser, search_url: str) -> list[CarListing]:
         """Collect the ads of every results page."""
         first_page = await self._load_page(browser, search_url, page_number=1)
-        urls = set(first_page.urls)
+        listings = {listing.url: listing for listing in first_page.listings}
         for page_number in range(2, first_page.pages + 1):
             page = await self._load_page(browser, search_url, page_number)
-            urls |= page.urls
+            listings |= {listing.url: listing for listing in page.listings}
 
-        if len(urls) < first_page.total:
+        if len(listings) < first_page.total:
             logger.warning(
                 "Collected fewer results than Yad2 reports",
-                collected=len(urls),
+                collected=len(listings),
                 reported=first_page.total,
             )
-        return urls
+        return list(listings.values())
 
     async def _load_page(self, browser: uc.Browser, search_url: str, page_number: int) -> FeedPage:
         url = self._build_page_url(search_url, page_number)
@@ -118,7 +119,7 @@ class Yad2CarFinder:
         await asyncio.sleep(self._PAGE_INTERVAL_IN_SECONDS)
 
         feed = await self._wait_for_feed(tab, page_number)
-        logger.info("Page scraped", page=f"{page_number}/{feed.pages}", results=len(feed.urls))
+        logger.info("Page scraped", page=f"{page_number}/{feed.pages}", results=len(feed.listings))
         return feed
 
     async def _wait_for_feed(self, tab: uc.Tab, page_number: int) -> FeedPage:

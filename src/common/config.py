@@ -16,6 +16,9 @@ class Configuration:
         # Chrome's sandbox needs kernel features that containers do not have by default.
         SANDBOX: bool = os.getenv("CHROME_SANDBOX", "true").lower() != "false"
 
+    class Storage:
+        DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/yad2.sqlite3")
+
     class Bot:
         TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         HEARTBEAT_FILE: str = os.getenv("HEARTBEAT_FILE", "")

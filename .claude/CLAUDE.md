@@ -35,17 +35,27 @@ Conventional commits, as in the MacSpoofer repo:
 src/
   main.py                    # entry point: sets up logging, starts the bot
   bot/
-    bot.py                   # Application setup, handler registration
+    bot.py                   # Application setup, handlers, startup and shutdown
+    formatting.py            # texts that describe searches
     handlers.py              # /start, /search, /stop, /status and the search conversation
     keyboards.py             # inline keyboard builders
-    scanner.py               # scan jobs, seen-URL diffing, notifications
+    scan_scheduler.py        # schedules scans on the job queue, restores them after a restart
+    scanner.py               # runs a scan and sends what is new
+    search_draft.py          # selections of a search conversation
+    services.py              # objects the handlers work with
   car/
     browser.py               # starts and stops Chrome (nodriver)
     car_finder.py            # collects the results of a search
+    car_listing.py           # a car ad
     car_search_filter.py     # search filter parameters and enums
     car_model_catalog.py     # fetches and caches each manufacturer's models from Yad2
-    cars_link_retriever.py   # runs the finder for a filter
     yad2_feed.py             # parses the results embedded in Yad2's search pages
+  storage/
+    database.py              # SQLite connection, transactions, migrations
+    migrations.py            # the schema. Add migrations, never change a released one
+    models.py                # stored scans
+    scan_repository.py       # scans of every chat
+    listing_repository.py    # listings, and which ones were sent
   common/
     config.py                # configuration from .env, paths
     exceptions.py            # CustomException and ErrorCode
@@ -75,8 +85,8 @@ docker-compose.yml           # runs the bot from .env
 
 - All I/O is async: browser, HTTP (`httpx.AsyncClient`), Telegram (`python-telegram-bot` v22+)
 - `asyncio.sleep()`, never `time.sleep()`
-- nodriver runs in its own event loop on a worker thread (`scanner._run_scraper_sync`) so a
-  scan never blocks the bot's loop
+- nodriver runs in its own event loop on a worker thread (`scanner.find_listings`) so a scan never
+  blocks the bot's loop
 
 ## Logging
 
@@ -89,8 +99,12 @@ docker-compose.yml           # runs the bot from .env
 
 - Search setup is a `ConversationHandler` with inline keyboards. A keyboard's callback data must
   match its pattern in `bot.py`
-- Periodic scans use `JobQueue.run_repeating()`. Interval 0 is a one-time scan
-- The first scan of a search sends everything it finds, later ones only what is new
+- Handlers get shared objects with `get_services(context)`, and selections with `get_draft(context)`
+- What has to survive a restart goes to the database, never to `chat_data`
+- Periodic scans use `JobQueue.run_repeating()`. Interval 0 is a one-time scan. Schedule jobs only after
+  the queue started, since it skips jobs that became due before
+- The first scan of a search sends everything it finds, later ones only what is new. A listing counts as
+  sent only after its message was delivered
 - Escape anything from Yad2 with `escape_markdown` before sending it as Markdown
 
 ## Yad2

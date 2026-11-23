@@ -1,104 +1,121 @@
-import asyncio
+"""Runs scans and notifies their chats about new listings."""
 
+import asyncio
+from collections.abc import Callable
+from itertools import batched
+
+from telegram import Bot
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from car.car_finder import Yad2CarFinder
+from car.car_listing import CarListing
 from car.car_search_filter import CarSearchFilter
-from car.cars_link_retriever import CarsLinkRetriever
 from common.exceptions import CustomException, ErrorCode
 from common.logger import logger
+from storage.listing_repository import ListingRepository
+from storage.models import Scan
+from storage.scan_repository import ScanRepository
 
-URLS_PER_MESSAGE = 10
+LISTINGS_PER_MESSAGE = 10
+
+FindListings = Callable[[CarSearchFilter], list[CarListing]]
 
 
-def _run_scraper_sync(car_filter: CarSearchFilter) -> list[str]:
-    """Run the scraper in a dedicated event loop (called from a background thread).
+def find_listings(car_filter: CarSearchFilter) -> list[CarListing]:
+    """Search Yad2 in an event loop of its own. Blocks, so call it from a worker thread.
 
     asyncio.run cancels the listener tasks nodriver leaves behind before it closes the loop.
     """
-    return asyncio.run(CarsLinkRetriever.retrieve_urls(car_filter))
+    return asyncio.run(Yad2CarFinder().find(car_filter))
 
 
 class Scanner:
-    def __init__(self) -> None:
-        self._seen_urls: dict[int, set[str]] = {}
-        self._scan_locks: dict[int, asyncio.Lock] = {}
+    """Scans Yad2 and sends what is new to the chat of the scan."""
 
-    def _get_lock(self, chat_id: int) -> asyncio.Lock:
-        if chat_id not in self._scan_locks:
-            self._scan_locks[chat_id] = asyncio.Lock()
-        return self._scan_locks[chat_id]
+    def __init__(
+        self, scans: ScanRepository, listings: ListingRepository, finder: FindListings
+    ) -> None:
+        """Initialize a Scanner.
 
-    def clear_seen_urls(self, chat_id: int) -> None:
-        self._seen_urls.pop(chat_id, None)
-
-    def get_seen_count(self, chat_id: int) -> int:
-        return len(self._seen_urls.get(chat_id, set()))
+        Args:
+            scans: Stored scans
+            listings: Stored listings, and which of them were sent
+            finder: Blocking function that searches Yad2
+        """
+        self._scans = scans
+        self._listings = listings
+        self._finder = finder
 
     async def scan_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        chat_id = context.job.chat_id
-        car_filter: CarSearchFilter = context.job.data
-        lock = self._get_lock(chat_id)
-
-        if lock.locked():
-            logger.info("Scan already in progress, skipping", chat_id=chat_id)
+        """Run the scan whose id is the job's data."""
+        scan = await self._scans.get(context.job.data)
+        if scan is None or not scan.is_active:
+            logger.info("Scan was stopped, skipping", scan_id=context.job.data)
             return
-
-        async with lock:
-            try:
-                await self._run_scan(context, chat_id, car_filter)
-            except Exception as e:
-                logger.error("scan_job failed", chat_id=chat_id, error=str(e))
-
-        is_one_time = not context.job_queue.get_jobs_by_name(f"scan_{chat_id}")
-        if is_one_time:
-            context.chat_data["scan_active"] = False
-            logger.debug("One-time scan finished, marked inactive", chat_id=chat_id)
-
-    async def _run_scan(
-        self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, car_filter: CarSearchFilter
-    ) -> None:
         try:
-            logger.info("Scan started", chat_id=chat_id, filters=car_filter.get_url_parameters())
-            await self._send_safe(context, chat_id, "🔍 Scanning for new cars...")
-            results = await asyncio.to_thread(_run_scraper_sync, car_filter) or []
-            logger.info("Scan completed", chat_id=chat_id, results_count=len(results))
-        except CustomException as e:
-            logger.error("Scan failed", chat_id=chat_id, error_code=e.error_code, error=e.message)
-            await self._send_safe(context, chat_id, f"⚠️ Scan failed: {e.message}")
+            await self._run(context.bot, scan)
+        finally:
+            if scan.is_one_time:
+                await self._scans.deactivate(scan.id)
+
+    async def _run(self, bot: Bot, scan: Scan) -> None:
+        """Scan, and report a failure to the chat."""
+        try:
+            await self._scan_and_notify(bot, scan)
+        except CustomException as err:
+            logger.error("Scan failed", scan_id=scan.id, code=err.error_code.name, error=str(err))
+            if err.error_code != ErrorCode.TELEGRAM_SEND_FAILED:
+                await self._report_failure(bot, scan, f"⚠️ Scan failed: {err.message}")
+        except Exception as err:
+            logger.error("Unexpected scan error", scan_id=scan.id, error=repr(err))
+            await self._report_failure(bot, scan, f"⚠️ Scan failed unexpectedly: {err}")
+
+    async def _scan_and_notify(self, bot: Bot, scan: Scan) -> None:
+        logger.info("Scan started", scan_id=scan.id, filters=scan.car_filter.get_url_parameters())
+        await self._send(bot, scan.chat_id, "🔍 Scanning for new cars...")
+
+        listings = await asyncio.to_thread(self._finder, scan.car_filter)
+        logger.info("Scan completed", scan_id=scan.id, results_count=len(listings))
+        await self._listings.save(listings)
+
+        if not await self._is_still_active(scan):
+            logger.info("Scan was stopped while it ran, not notifying", scan_id=scan.id)
             return
-        except Exception as e:
-            logger.error("Unexpected scan error", chat_id=chat_id, error=str(e))
-            await self._send_safe(context, chat_id, f"⚠️ Scan failed unexpectedly: {e}")
+        await self._notify(bot, scan, await self._get_new(scan, listings))
+
+    async def _is_still_active(self, scan: Scan) -> bool:
+        current = await self._scans.get(scan.id)
+        return current is not None and current.is_active
+
+    async def _get_new(self, scan: Scan, listings: list[CarListing]) -> list[CarListing]:
+        notified_urls = await self._listings.get_notified_urls(scan.id)
+        return [listing for listing in listings if listing.url not in notified_urls]
+
+    async def _notify(self, bot: Bot, scan: Scan, listings: list[CarListing]) -> None:
+        """Send listings. Each one counts as sent only once its message was delivered."""
+        logger.info("New cars", scan_id=scan.id, new_count=len(listings))
+        if not listings:
+            await self._send(bot, scan.chat_id, "No new cars found in this scan.")
             return
 
-        seen = self._seen_urls.get(chat_id, set())
-        new_urls = set(results) - seen
-        self._seen_urls[chat_id] = seen | set(results)
+        await self._send(bot, scan.chat_id, f"🚗 Found {len(listings)} new car(s)!")
+        for batch in batched(listings, LISTINGS_PER_MESSAGE):
+            await self._send(bot, scan.chat_id, "\n".join(listing.url for listing in batch))
+            await self._listings.mark_notified(scan.id, batch)
 
-        if new_urls:
-            logger.info(
-                "New cars found",
-                chat_id=chat_id,
-                new_count=len(new_urls),
-                total_seen=len(self._seen_urls[chat_id]),
-            )
-            await self._send_safe(context, chat_id, f"🚗 Found {len(new_urls)} new car(s)!")
-            sorted_urls = sorted(new_urls)
-            for i in range(0, len(sorted_urls), URLS_PER_MESSAGE):
-                batch = sorted_urls[i : i + URLS_PER_MESSAGE]
-                await self._send_safe(context, chat_id, "\n".join(batch))
-        else:
-            logger.info(
-                "No new cars found", chat_id=chat_id, total_seen=len(self._seen_urls[chat_id])
-            )
-            await self._send_safe(context, chat_id, "No new cars found in this scan.")
+    async def _report_failure(self, bot: Bot, scan: Scan, text: str) -> None:
+        try:
+            await self._send(bot, scan.chat_id, text)
+        except CustomException as err:
+            logger.error("Failed to report a failed scan", scan_id=scan.id, error=str(err))
 
     @staticmethod
-    async def _send_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str) -> None:
+    async def _send(bot: Bot, chat_id: int, text: str) -> None:
         try:
-            await context.bot.send_message(chat_id, text)
-        except Exception as e:
-            logger.error("Failed to send Telegram message", chat_id=chat_id, error=str(e))
+            await bot.send_message(chat_id, text)
+        except TelegramError as err:
             raise CustomException(
-                f"Failed to send Telegram message: {e}", ErrorCode.TELEGRAM_SEND_FAILED
-            ) from e
+                message=f"Failed to send Telegram message: {err}",
+                error_code=ErrorCode.TELEGRAM_SEND_FAILED,
+            ) from err

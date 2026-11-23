@@ -1,3 +1,5 @@
+import json
+
 from car.car_search_filter import CarSearchFilter
 from common.range import Range
 
@@ -8,10 +10,10 @@ def test_empty_filter_has_no_parameters():
 
 def test_selections_are_comma_separated_ids():
     car_filter = CarSearchFilter(
-        manufacturers=[CarSearchFilter.Manufacturer.KIA, CarSearchFilter.Manufacturer.TOYOTA],
-        models=[10711, 10226],
-        gear_boxes=[CarSearchFilter.GearBox.AUTO],
-        areas=[CarSearchFilter.Area.CENTER],
+        manufacturers=(CarSearchFilter.Manufacturer.KIA, CarSearchFilter.Manufacturer.TOYOTA),
+        models=(10711, 10226),
+        gear_boxes=(CarSearchFilter.GearBox.AUTO,),
+        areas=(CarSearchFilter.Area.CENTER,),
     )
 
     assert car_filter.get_url_parameters() == [
@@ -50,3 +52,20 @@ def test_manufacturer_display_names():
     assert names["BMW"] == "BMW"
     assert names["MERCEDES_BENZ"] == "Mercedes-Benz"
     assert names["ALFA_ROMEO"] == "Alfa Romeo"
+
+
+def test_filter_survives_json():
+    car_filter = CarSearchFilter(
+        manufacturers=(CarSearchFilter.Manufacturer.KIA,),
+        models=(10711,),
+        gear_boxes=(CarSearchFilter.GearBox.AUTO,),
+        year_range=Range(min=2020),
+        price_range=Range(max=60000),
+        areas=(CarSearchFilter.Area.SHARON,),
+        only_with_price=True,
+    )
+
+    restored = CarSearchFilter.from_dict(json.loads(json.dumps(car_filter.to_dict())))
+
+    assert restored == car_filter
+    assert restored.get_url_parameters() == car_filter.get_url_parameters()
