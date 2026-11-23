@@ -1,4 +1,4 @@
-from car.yad2_feed import parse_feed
+from car.yad2_feed import FeedPage, parse_feed
 
 
 def _query(key: str, data: object) -> dict:
@@ -71,7 +71,7 @@ def test_receivership_sales_link_to_the_auction():
 def test_search_without_results():
     feed = parse_feed([_query("feed", {"private": [], "pagination": {"pages": 0, "total": 0}})])
 
-    assert feed == (set(), 0, 0)
+    assert feed == FeedPage(urls=set(), pages=0, total=0)
 
 
 def test_page_without_results_data():

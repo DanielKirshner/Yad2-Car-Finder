@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from car import car_finder
+from car import browser as browser_module
 from car.car_finder import Yad2CarFinder
 from car.car_search_filter import CarSearchFilter
 from common.exceptions import CustomException, ErrorCode
@@ -48,7 +48,7 @@ class FakeBrowser:
 
 @pytest.fixture
 def find(monkeypatch):
-    monkeypatch.setattr(Yad2CarFinder, "_FETCHING_INTERVAL_IN_SECONDS", 0)
+    monkeypatch.setattr(Yad2CarFinder, "_PAGE_INTERVAL_IN_SECONDS", 0)
     monkeypatch.setattr(Yad2CarFinder, "_POLL_INTERVAL_IN_SECONDS", 0)
     monkeypatch.setattr(Yad2CarFinder, "_PAGE_LOAD_TIMEOUT_IN_SECONDS", 0.05)
     monkeypatch.setattr(Yad2CarFinder, "_CAPTCHA_TIMEOUT_IN_SECONDS", 0.05)
@@ -58,7 +58,7 @@ def find(monkeypatch):
             browser.profile_dir = user_data_dir
             return browser
 
-        monkeypatch.setattr(car_finder.uc, "start", start)
+        monkeypatch.setattr(browser_module.uc, "start", start)
         return asyncio.run(Yad2CarFinder().find(SEARCH))
 
     return run
