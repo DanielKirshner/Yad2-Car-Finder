@@ -14,21 +14,22 @@ and update the date here.
   Ranges are `min-max`, with `-1` for no limit
 - Ad: `https://www.yad2.co.il/vehicles/item/<id>`. Result links are `item/<id>` or `/item/<id>`,
   relative to `/vehicles` (2026-11-23)
-- Page load indicator: `a[data-nagish='feed-item-card-link']` (the recommendations load first)
-- Results: `a[data-nagish='private-item-link']`, `a[data-nagish='agent-item-link']` and
-  `a[data-nagish='agent-item-no-footer-link']`. They appear after scrolling down
-- Agent cards repeat promoted ads, and some link to other sites such as `konesy2.co.il` (2026-11-23)
-- Links with `spot=look_alike` are similar cars, not matches
-- Pages: `nav[data-nagish='pagination-navbar']`, 40 results each
-- Ad popup: an iframe titled "Modal Message", closed by `.bz-close-btn`
+- Result cards: `a[data-nagish='private-item-link']`, `a[data-nagish='agent-item-link']` and
+  `a[data-nagish='agent-item-no-footer-link']`. They render while scrolling, so the scraper does not
+  read them: a page of 40 ads once gave only 21 (2026-11-23)
 
 ## Embedded data
 
-`<script id="__NEXT_DATA__">` holds the results as JSON, under
-`props.pageProps.dehydratedState.queries`, in the query whose key starts with `"feed"`. Its data
-has the lists `platinum`, `boost`, `solo`, `commercial` and `private`, and
-`pagination: {pages, perPage, total}` (2026-11-23). Compare `total` with what a scan collected to see
-whether it missed ads.
+The scraper reads `<script id="__NEXT_DATA__">`: `props.pageProps.dehydratedState.queries`, the query
+that has `pagination: {pages, perPage, total}` (2026-11-23).
+
+- Two layouts are in use, sometimes within one search: the ads are in `private` and `commercial`, or
+  in `ads`. Promoted ads repeat in `platinum`, `boost` and `solo`
+- The layouts order ads differently, so page 2 can repeat ads of page 1 and skip others. The scraper
+  warns when it collected fewer ads than `total`
+- A search without results has `total: 0`
+- Receivership sales have `externalKonesUrl`, a link to `konesy2.co.il` instead of a Yad2 page
+- `customer` identifies the seller. Do not store or log it
 
 ## API
 
@@ -44,10 +45,9 @@ whether it missed ads.
 2. Look at the page the browser got: `location.href`, `document.title`, the first lines of
    `document.body.innerText` and `tab.save_screenshot(...)`.
    - Another host means the bot check. Stop and wait, do not retry in a loop
-   - "מה שחיפשת לא נמצא" means the search has no results
-   - The right page without matches for a selector means Yad2 changed its layout. Find the new
-     `data-nagish` values
-3. Fix the selector, then run the live scan of the `verify` skill.
+   - The right page without a feed (`FEED_ITEMS_NOT_FOUND`) means Yad2 changed its data. Look for the
+     new query in `__NEXT_DATA__`
+3. Fix `yad2_feed.py`, add the new shape to its tests, then run the live scan of the `verify` skill.
 
 ## Containers
 

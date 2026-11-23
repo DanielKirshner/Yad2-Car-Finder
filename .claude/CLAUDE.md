@@ -44,6 +44,7 @@ src/
     car_search_filter.py     # search filter parameters and enums
     car_model_catalog.py     # fetches and caches each manufacturer's models from Yad2
     cars_link_retriever.py   # runs the finder for a filter
+    yad2_feed.py             # parses the results embedded in Yad2's search pages
   common/
     config.py                # configuration from .env, paths
     exceptions.py            # CustomException and ErrorCode
