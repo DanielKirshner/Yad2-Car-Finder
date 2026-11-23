@@ -4,3 +4,5 @@ chrome
 chromedriver
 logs
 .env
+.claude/worktrees
+.claude/settings.local.json
