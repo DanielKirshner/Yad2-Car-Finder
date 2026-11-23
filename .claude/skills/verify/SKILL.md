@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Check a change to Yad2 Car Finder before committing it - lint, formatting, the real bot handlers and a live scan. Use before opening a pull request, after changing handlers, keyboards, the scanner or the scraper, or when asked whether a change works.
+description: Check a change to Yad2 Car Finder before committing it - lint, tests, the real bot handlers and a live scan. Use before opening a pull request, after changing handlers, keyboards, the scanner or the scraper, or when asked whether a change works.
 ---
 
 # Verify a change
@@ -10,11 +10,11 @@ Run the steps that match what changed. Report what ran and what did not.
 ## 1. Always
 
 ```bash
-ruff check .
-ruff format --check .
+make check
 ```
 
-Fix every finding, also ones the change did not cause.
+Fix every finding, also ones the change did not cause. Cover new logic with tests that fail without
+the change. Tests never reach the network: serve Yad2's responses with `httpx.MockTransport`.
 
 ## 2. Handlers or keyboards changed
 

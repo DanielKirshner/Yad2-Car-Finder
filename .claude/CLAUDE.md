@@ -7,10 +7,11 @@ update them in the same change.
 ## Commands
 
 ```bash
-pip install -r requirements.txt   # runtime dependencies
-python3 src/main.py               # run the bot (needs Chrome and TELEGRAM_BOT_TOKEN in .env)
-ruff check .                      # lint
-ruff format --check .             # formatting
+make install          # runtime and development dependencies
+python3 src/main.py   # run the bot (needs Chrome and TELEGRAM_BOT_TOKEN in .env)
+make check            # lint, formatting and tests, as CI runs them
+make format           # fix lint findings and format
+make audit            # known vulnerabilities in the dependencies
 ```
 
 ## Commits and pull requests
@@ -48,6 +49,7 @@ src/
     exceptions.py            # CustomException and ErrorCode
     logger.py                # StructuredLogger and its setup
     range.py                 # Yad2 URL ranges
+tests/                       # pytest, without network access
 ```
 
 `src` is the import root: write `from common.logger import logger`, not `from src.common...`.
