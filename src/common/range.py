@@ -1,14 +1,22 @@
+"""Yad2 URL ranges."""
+
+from dataclasses import dataclass
+from typing import ClassVar
+
+
+@dataclass(frozen=True)
 class Range:
-    """Class that represents Yad2 URL ranges for parameters."""
+    """A range of a search parameter. `INFINITE` leaves a side open."""
 
-    INFINITE: int = -1
+    INFINITE: ClassVar[int] = -1
 
-    def __init__(self, min: int = INFINITE, max: int = INFINITE) -> None:
-        self._min = min
-        self._max = max
+    min: int = INFINITE
+    max: int = INFINITE
 
-    def get_min(self) -> int:
-        return self._min
+    @property
+    def is_limited(self) -> bool:
+        """Whether the range excludes anything."""
+        return self.min >= 0 or self.max >= 0
 
-    def get_max(self) -> int:
-        return self._max
+    def __str__(self) -> str:
+        return f"{self.min}-{self.max}"

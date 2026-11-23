@@ -1,9 +1,12 @@
+"""Handlers of the bot's commands and of the search conversation."""
+
 from typing import NamedTuple
 
 from telegram import CallbackQuery, Update
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes, ConversationHandler
-from telegram.helpers import escape_markdown
 
+from bot.formatting import format_search
 from bot.keyboards import (
     build_confirm_keyboard,
     build_interval_keyboard,
@@ -13,12 +16,12 @@ from bot.keyboards import (
     build_year_max_keyboard,
     build_year_min_keyboard,
 )
-from bot.scanner import Scanner
-from car.car_model_catalog import CarModelCatalog
-from car.car_search_filter import CarSearchFilter
+from bot.scan_scheduler import schedule_scan, unschedule_scan
+from bot.search_draft import SearchDraft, get_draft, start_draft
+from bot.services import get_services
 from common.exceptions import CustomException
 from common.logger import logger
-from common.range import Range
+from storage.models import NewScan, Scan
 
 (
     SELECTING_MANUFACTURER,
@@ -29,13 +32,10 @@ from common.range import Range
     CONFIRMING,
 ) = range(6)
 
-JOB_NAME_PREFIX = "scan_"
-
-scanner = Scanner()
-model_catalog = CarModelCatalog()
-
 
 class TelegramUserInfo(NamedTuple):
+    """Who triggered an update, for the logs."""
+
     chat_id: int
     user_id: int | None = None
     username: str | None = None
@@ -66,6 +66,7 @@ def _user_context(update: Update) -> dict:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Welcome the user and offer a new search."""
     logger.debug("/start command received", **_user_context(update))
     await update.message.reply_text(
         "🚗 *Yad2 Car Finder Bot*\n\n"
@@ -77,31 +78,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def search_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point for search configuration (from /search command or inline button)."""
-    chat_id = update.effective_chat.id
-    was_active = context.chat_data.get("scan_active", False)
-    logger.debug("/search entry", **_user_context(update), previous_scan_active=was_active)
-
-    if was_active:
-        _remove_scan_jobs(context, chat_id)
-        scanner.clear_seen_urls(chat_id)
-        context.chat_data["scan_active"] = False
-        logger.debug("Previous scan stopped for new search", **_user_context(update))
-    else:
-        _remove_scan_jobs(context, chat_id)
-        context.chat_data["scan_active"] = False
-
-    context.chat_data["selected_manufacturers"] = set()
-    context.chat_data["selected_models"] = set()
-    context.chat_data["available_models"] = []
-    context.chat_data["model_page"] = 0
-    context.chat_data["year_min"] = None
-    context.chat_data["year_max"] = None
-    context.chat_data["scan_interval"] = 10
+    """Start the search conversation, from /search or an inline button. Stops the chat's scan."""
+    logger.debug("/search entry", **_user_context(update))
+    await _stop_scans(context, update.effective_chat.id)
+    draft = start_draft(context)
 
     text = "Select manufacturer(s), then tap *Next*:"
-    keyboard = build_manufacturer_keyboard(set())
-
+    keyboard = build_manufacturer_keyboard(draft.manufacturers)
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
@@ -109,137 +92,119 @@ async def search_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
     else:
         await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
     return SELECTING_MANUFACTURER
 
 
 async def manufacturer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle a manufacturer, or go on to the models."""
     query = update.callback_query
-    data = query.data
-    selected: set[int] = context.chat_data.get("selected_manufacturers", set())
+    draft = get_draft(context)
 
-    if data.startswith("mfr_toggle:"):
-        await query.answer()
-        value = int(data.split(":")[1])
-        selected.symmetric_difference_update({value})
-        context.chat_data["selected_manufacturers"] = selected
-        await query.edit_message_text(
-            "Select manufacturer(s), then tap *Next*:",
-            parse_mode="Markdown",
-            reply_markup=build_manufacturer_keyboard(selected),
-        )
-        return SELECTING_MANUFACTURER
-
-    if data == "mfr_done":
-        if not selected:
-            await query.answer("Please select at least one manufacturer!", show_alert=True)
-            return SELECTING_MANUFACTURER
-
-        manufacturers = [CarSearchFilter.Manufacturer(value) for value in selected]
-        try:
-            models = await model_catalog.get_models(manufacturers)
-        except CustomException as e:
-            logger.error("Failed to load models", **_user_context(update), error=e.message)
-            await query.answer("Couldn't load models from Yad2, please try again.", show_alert=True)
-            return SELECTING_MANUFACTURER
-
-        await query.answer()
-        context.chat_data["available_models"] = models
-        context.chat_data["selected_models"] = set()
-        context.chat_data["model_page"] = 0
-        await _show_model_keyboard(query, context.chat_data)
-        return SELECTING_MODEL
+    if query.data == "mfr_done":
+        return await _finish_manufacturers(update, context, draft)
 
     await query.answer()
+    draft.manufacturers ^= {_get_callback_value(query)}
+    await query.edit_message_text(
+        "Select manufacturer(s), then tap *Next*:",
+        parse_mode="Markdown",
+        reply_markup=build_manufacturer_keyboard(draft.manufacturers),
+    )
     return SELECTING_MANUFACTURER
 
 
-async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _finish_manufacturers(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, draft: SearchDraft
+) -> int:
+    """Offer the models of the selected manufacturers."""
     query = update.callback_query
-    data = query.data
-    selected: set[int] = context.chat_data.get("selected_models", set())
+    if not draft.manufacturers:
+        await query.answer("Please select at least one manufacturer!", show_alert=True)
+        return SELECTING_MANUFACTURER
 
-    if data.startswith("mdl_toggle:"):
-        await query.answer()
-        value = int(data.split(":")[1])
-        selected.symmetric_difference_update({value})
-        context.chat_data["selected_models"] = selected
-        await _show_model_keyboard(query, context.chat_data)
-        return SELECTING_MODEL
-
-    if data.startswith("mdl_page:"):
-        await query.answer()
-        context.chat_data["model_page"] = int(data.split(":")[1])
-        await _show_model_keyboard(query, context.chat_data)
-        return SELECTING_MODEL
-
-    if data in ("mdl_done", "mdl_skip"):
-        await query.answer()
-        if data == "mdl_skip":
-            context.chat_data["selected_models"] = set()
-        await query.edit_message_text(
-            "Select minimum year, or tap *Skip*:",
-            parse_mode="Markdown",
-            reply_markup=build_year_min_keyboard(),
+    try:
+        models = await get_services(context).model_catalog.get_models(
+            list(draft.selected_manufacturers)
         )
-        return SELECTING_YEAR_MIN
+    except CustomException as err:
+        logger.error("Failed to load models", **_user_context(update), error=err.message)
+        await query.answer("Couldn't load models from Yad2, please try again.", show_alert=True)
+        return SELECTING_MANUFACTURER
 
     await query.answer()
+    draft.offer_models(models)
+    await _show_model_keyboard(query, draft)
     return SELECTING_MODEL
 
 
-async def _show_model_keyboard(query: CallbackQuery, chat_data: dict) -> None:
-    models = chat_data.get("available_models", [])
+async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle a model, turn the page, or go on to the years."""
+    query = update.callback_query
+    draft = get_draft(context)
+    await query.answer()
+
+    if query.data in ("mdl_done", "mdl_skip"):
+        return await _finish_models(query, draft)
+    if query.data.startswith("mdl_toggle:"):
+        draft.models ^= {_get_callback_value(query)}
+        await _show_model_keyboard(query, draft)
+    elif query.data.startswith("mdl_page:"):
+        draft.model_page = _get_callback_value(query)
+        await _show_model_keyboard(query, draft)
+    return SELECTING_MODEL
+
+
+async def _finish_models(query: CallbackQuery, draft: SearchDraft) -> int:
+    if query.data == "mdl_skip":
+        draft.models = set()
+    await query.edit_message_text(
+        "Select minimum year, or tap *Skip*:",
+        parse_mode="Markdown",
+        reply_markup=build_year_min_keyboard(),
+    )
+    return SELECTING_YEAR_MIN
+
+
+async def _show_model_keyboard(query: CallbackQuery, draft: SearchDraft) -> None:
     text = (
         "Select model(s), or tap *Skip* / *Next*:"
-        if models
+        if draft.available_models
         else "No models found for the selected manufacturer(s), tap *Skip* / *Next*:"
     )
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
-        reply_markup=build_model_keyboard(
-            models, chat_data.get("selected_models", set()), chat_data.get("model_page", 0)
-        ),
+        reply_markup=build_model_keyboard(draft.available_models, draft.models, draft.model_page),
     )
 
 
 async def year_min_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set the minimum year and ask for the maximum, or skip both."""
     query = update.callback_query
-    data = query.data
-
-    if data == "yr_skip":
-        await query.answer()
-        await query.edit_message_text(
-            "Select scan interval:",
-            parse_mode="Markdown",
-            reply_markup=build_interval_keyboard(),
-        )
-        return SELECTING_INTERVAL
-
-    if data.startswith("yr_min:"):
-        await query.answer()
-        year = int(data.split(":")[1])
-        context.chat_data["year_min"] = year
-        await query.edit_message_text(
-            f"Min year: *{year}*\nSelect maximum year, or tap *Skip*:",
-            parse_mode="Markdown",
-            reply_markup=build_year_max_keyboard(year),
-        )
-        return SELECTING_YEAR_MAX
-
     await query.answer()
-    return SELECTING_YEAR_MIN
+    if query.data == "yr_skip":
+        return await _ask_interval(query)
+
+    draft = get_draft(context)
+    draft.year_min = _get_callback_value(query)
+    await query.edit_message_text(
+        f"Min year: *{draft.year_min}*\nSelect maximum year, or tap *Skip*:",
+        parse_mode="Markdown",
+        reply_markup=build_year_max_keyboard(draft.year_min),
+    )
+    return SELECTING_YEAR_MAX
 
 
 async def year_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set the maximum year, or leave it open."""
     query = update.callback_query
-    data = query.data
     await query.answer()
+    if query.data != "yr_skip":
+        get_draft(context).year_max = _get_callback_value(query)
+    return await _ask_interval(query)
 
-    if data.startswith("yr_max:"):
-        context.chat_data["year_max"] = int(data.split(":")[1])
 
+async def _ask_interval(query: CallbackQuery) -> int:
     await query.edit_message_text(
         "Select scan interval:",
         parse_mode="Markdown",
@@ -249,209 +214,131 @@ async def year_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def interval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set the interval and show the whole search."""
     query = update.callback_query
-    data = query.data
-
-    if data.startswith("interval:"):
-        await query.answer()
-        raw_value = data.split(":")[1]
-        if raw_value == "once":
-            context.chat_data["scan_interval"] = 0
-        else:
-            context.chat_data["scan_interval"] = int(raw_value)
-        summary = _build_filter_summary(context.chat_data)
-        await query.edit_message_text(
-            f"*Search Configuration:*\n\n{summary}\n\nReady to start?",
-            parse_mode="Markdown",
-            reply_markup=build_confirm_keyboard(),
-        )
-        return CONFIRMING
-
     await query.answer()
-    return SELECTING_INTERVAL
 
-
-async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    data = query.data
-
-    if data == "confirm_edit":
-        return await search_entry(update, context)
-
-    if data == "confirm_start":
-        chat_id = update.effective_chat.id
-        if not context.chat_data.get("selected_manufacturers"):
-            await query.answer("No manufacturers selected! Please start over.", show_alert=True)
-            logger.warning("Confirm without manufacturers", **_user_context(update))
-            return CONFIRMING
-
-        await query.answer()
-        car_filter = _build_car_filter(context.chat_data)
-        interval = context.chat_data.get("scan_interval", 10)
-        logger.debug(
-            "Scan confirmed",
-            **_user_context(update),
-            interval_minutes=interval,
-            filters=car_filter.get_url_parameters(),
-        )
-
-        _remove_scan_jobs(context, chat_id)
-
-        context.job_queue.run_once(
-            scanner.scan_job,
-            when=2,
-            chat_id=chat_id,
-            name=f"{JOB_NAME_PREFIX}{chat_id}_once",
-            data=car_filter,
-        )
-
-        if interval > 0:
-            context.job_queue.run_repeating(
-                scanner.scan_job,
-                interval=interval * 60,
-                first=interval * 60,
-                chat_id=chat_id,
-                name=f"{JOB_NAME_PREFIX}{chat_id}",
-                data=car_filter,
-            )
-
-        context.chat_data["active_filter"] = car_filter
-        context.chat_data["scan_active"] = True
-
-        if interval > 0:
-            msg = (
-                f"✅ Scanning started! I'll check every {interval} minutes.\n"
-                f"Use /stop to stop scanning.\n"
-                f"Use /status to check current configuration."
-            )
-        else:
-            msg = "✅ Running a one-time scan now...\nUse /status to check results."
-
-        await query.edit_message_text(msg)
-        return ConversationHandler.END
-
-    await query.answer()
+    draft = get_draft(context)
+    draft.interval_minutes = 0 if query.data == "interval:once" else _get_callback_value(query)
+    summary = format_search(draft.to_filter(), draft.model_names, draft.interval_minutes)
+    await query.edit_message_text(
+        f"*Search Configuration:*\n\n{summary}\n\nReady to start?",
+        parse_mode="Markdown",
+        reply_markup=build_confirm_keyboard(),
+    )
     return CONFIRMING
 
 
-async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    chat_id = update.effective_chat.id
-    is_active = context.chat_data.get("scan_active", False)
-    logger.debug("/stop command received", **_user_context(update), was_active=is_active)
+async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start the scan, or edit the search."""
+    query = update.callback_query
+    if query.data == "confirm_edit":
+        return await search_entry(update, context)
 
-    if not is_active:
-        await update.message.reply_text(
-            "ℹ️ No active scan to stop. Use /search to configure one.",
-            reply_markup=build_start_keyboard(),
+    draft = get_draft(context)
+    if not draft.manufacturers:
+        await query.answer("No manufacturers selected! Please start over.", show_alert=True)
+        logger.warning("Confirm without manufacturers", **_user_context(update))
+        return CONFIRMING
+
+    await query.answer()
+    scan = await _start_scan(update, context, draft)
+    await query.edit_message_text(_get_started_text(scan))
+    return ConversationHandler.END
+
+
+async def _start_scan(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, draft: SearchDraft
+) -> Scan:
+    """Store the draft as the chat's scan and schedule it."""
+    services = get_services(context)
+    user = update.effective_user
+    scan = await services.scans.create(
+        NewScan(
+            chat_id=update.effective_chat.id,
+            username=user.username if user else None,
+            car_filter=draft.to_filter(),
+            model_names=draft.model_names,
+            interval_minutes=draft.interval_minutes,
         )
-        return ConversationHandler.END
-
-    _remove_scan_jobs(context, chat_id)
-    context.chat_data["scan_active"] = False
-    scanner.clear_seen_urls(chat_id)
-    logger.debug("Scan stopped and seen URLs cleared", **_user_context(update))
-
-    await update.message.reply_text(
-        "⏹️ Scanning stopped. Use /search to configure a new search.",
-        reply_markup=build_start_keyboard(),
     )
+    schedule_scan(context.job_queue, services.scanner, scan)
+    logger.debug("Scan confirmed", **_user_context(update), scan_id=scan.id)
+    return scan
+
+
+def _get_started_text(scan: Scan) -> str:
+    if scan.is_one_time:
+        return "✅ Running a one-time scan now...\nUse /status to check results."
+    return (
+        f"✅ Scanning started! I'll check every {scan.interval_minutes} minutes.\n"
+        f"Use /stop to stop scanning.\n"
+        f"Use /status to check current configuration."
+    )
+
+
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Stop the chat's scan."""
+    stopped_count = await _stop_scans(context, update.effective_chat.id)
+    logger.debug("/stop command received", **_user_context(update), stopped_count=stopped_count)
+    text = (
+        "⏹️ Scanning stopped. Use /search to configure a new search."
+        if stopped_count
+        else "ℹ️ No active scan to stop. Use /search to configure one."
+    )
+    await update.message.reply_text(text, reply_markup=build_start_keyboard())
     return ConversationHandler.END
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
-    is_active = context.chat_data.get("scan_active", False)
-    logger.debug("/status command received", **_user_context(update), scan_active=is_active)
+    """Describe the chat's scan and how much it found."""
+    services = get_services(context)
+    scans = await services.scans.list_active_in_chat(update.effective_chat.id)
+    logger.debug("/status command received", **_user_context(update), scan_count=len(scans))
 
-    if not is_active:
+    if not scans:
         await update.message.reply_text(
             "No active scan. Use /search to configure one.",
             reply_markup=build_start_keyboard(),
         )
         return
 
-    summary = _build_filter_summary(context.chat_data)
-    seen_count = scanner.get_seen_count(chat_id)
-    logger.debug("Status check", **_user_context(update), seen_count=seen_count)
-
+    scan = scans[-1]
+    sent_count = await services.listings.count_notified(scan.id)
+    summary = format_search(scan.car_filter, scan.model_names, scan.interval_minutes)
     await update.message.reply_text(
         f"*Current Scan Status:*\n\n"
         f"🟢 Active\n"
-        f"📊 {seen_count} unique cars found so far\n\n"
+        f"📊 {sent_count} unique cars found so far\n\n"
         f"{summary}",
         parse_mode="Markdown",
     )
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error("Exception while handling an update", error=str(context.error))
-    if isinstance(update, Update) and update.effective_chat:
-        try:
-            await context.bot.send_message(
-                update.effective_chat.id,
-                "⚠️ An error occurred. Please try again with /search.",
-            )
-        except Exception:
-            pass
-
-
-def _remove_scan_jobs(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
-    for suffix in ("", "_once"):
-        for job in context.job_queue.get_jobs_by_name(f"{JOB_NAME_PREFIX}{chat_id}{suffix}"):
-            job.schedule_removal()
-
-
-def _build_car_filter(chat_data: dict) -> CarSearchFilter:
-    manufacturers = [
-        m
-        for m in CarSearchFilter.Manufacturer
-        if m.value in chat_data.get("selected_manufacturers", set())
-    ]
-    models = sorted(chat_data.get("selected_models", set()))
-
-    year_min = chat_data.get("year_min")
-    year_max = chat_data.get("year_max")
-    year_range = None
-    if year_min is not None or year_max is not None:
-        year_range = Range(
-            min=year_min if year_min is not None else Range.INFINITE,
-            max=year_max if year_max is not None else Range.INFINITE,
+    """Log an error that no handler expected, and tell the user."""
+    logger.error("Exception while handling an update", error=repr(context.error))
+    if not isinstance(update, Update) or not update.effective_chat:
+        return
+    try:
+        await context.bot.send_message(
+            update.effective_chat.id,
+            "⚠️ An error occurred. Please try again with /search.",
         )
-
-    return CarSearchFilter(
-        manufacturers=manufacturers,
-        models=models,
-        year_range=year_range,
-    )
+    except TelegramError as err:
+        logger.error("Failed to report an error", error=str(err))
 
 
-def _build_filter_summary(chat_data: dict) -> str:
-    lines = []
+async def _stop_scans(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> int:
+    """Stop the chat's scans and return how many there were."""
+    services = get_services(context)
+    scans = await services.scans.list_active_in_chat(chat_id)
+    for scan in scans:
+        unschedule_scan(context.job_queue, scan.id)
+        await services.scans.deactivate(scan.id)
+    return len(scans)
 
-    mfr_values = chat_data.get("selected_manufacturers", set())
-    if mfr_values:
-        names = [m.display_name for m in CarSearchFilter.Manufacturer if m.value in mfr_values]
-        lines.append(f"🏭 Manufacturers: {', '.join(names)}")
 
-    mdl_values = chat_data.get("selected_models", set())
-    if mdl_values:
-        names = [
-            escape_markdown(m.name)
-            for m in chat_data.get("available_models", [])
-            if m.value in mdl_values
-        ]
-        lines.append(f"🚙 Models: {', '.join(names)}")
-
-    year_min = chat_data.get("year_min")
-    year_max = chat_data.get("year_max")
-    if year_min or year_max:
-        year_str = f"{year_min or 'Any'} - {year_max or 'Any'}"
-        lines.append(f"📅 Year: {year_str}")
-
-    interval = chat_data.get("scan_interval", 10)
-    if interval > 0:
-        lines.append(f"⏱️ Scan every: {interval} minutes")
-    else:
-        lines.append("⏱️ Scan: Once")
-
-    return "\n".join(lines)
+def _get_callback_value(query: CallbackQuery) -> int:
+    """Return the number after the colon of a button's data, such as `mdl_toggle:10711`."""
+    return int(query.data.split(":")[1])

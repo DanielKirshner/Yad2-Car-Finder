@@ -5,6 +5,7 @@ Telegram bot that scrapes [Yad2](https://www.yad2.co.il/vehicles/cars) for car l
 - **Interactive configuration** - configure manufacturer, model, year range via inline keyboard buttons in Telegram (models are fetched live from Yad2 for the selected manufacturers)
 - **Periodic scanning** - automatically checks for new listings every X minutes (configurable: 5/10/15/30/60) or run a one-time scan
 - **Smart notifications** - first scan sends all found listings, subsequent scans only notify about new ones
+- **Survives restarts** - scans and sent listings are stored in SQLite, so active scans continue after a restart without repeating listings
 - **Structured logging** - colored console output with structured JSON kwargs, configurable log level via `LOG_LEVEL` env var
 - **Bot commands** - `/start`, `/search`, `/stop`, `/status`
 
@@ -18,7 +19,7 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-The image includes Chromium, which runs on a virtual display. Set `BOT_MEMORY_LIMIT` and `BOT_CPU_LIMIT` in `.env` to change the resource limits (2 GB and 2 CPUs by default). Logs are kept in the `logs` volume. To run without Docker instead:
+The image includes Chromium, which runs on a virtual display. Set `BOT_MEMORY_LIMIT` and `BOT_CPU_LIMIT` in `.env` to change the resource limits (2 GB and 2 CPUs by default). The database is kept in the `data` volume and logs in the `logs` volume. To run without Docker instead:
 
 ### Prerequisites
 
@@ -39,6 +40,8 @@ Create `.env` file and set your Telegram bot token:
 ```
 TELEGRAM_BOT_TOKEN=your-token-here
 ```
+
+The database is stored in `data/yad2.sqlite3`. Set `DATABASE_PATH` to change that. To back it up while the bot runs, use `sqlite3 data/yad2.sqlite3 ".backup backup.sqlite3"`
 
 ### Running
 

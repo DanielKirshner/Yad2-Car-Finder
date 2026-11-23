@@ -11,7 +11,9 @@ services:
     mem_limit: ${BOT_MEMORY_LIMIT:-2g}
     cpus: ${BOT_CPU_LIMIT:-2}
     volumes:
+      - data:/app/data
       - logs:/app/logs
 
 volumes:
+  data:
   logs:

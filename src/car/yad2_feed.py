@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from car.car_listing import CarListing
+
 _ITEM_URL = "https://www.yad2.co.il/vehicles/item/{token}"
 
 
@@ -10,12 +12,12 @@ class FeedPage:
     """One page of search results.
 
     Attributes:
-        urls: The ads on this page
+        listings: The ads on this page, without repeats
         pages: How many pages the search has
         total: How many results Yad2 reports for all pages
     """
 
-    urls: set[str]
+    listings: tuple[CarListing, ...]
     pages: int
     total: int
 
@@ -38,8 +40,9 @@ def parse_feed(queries: list[dict]) -> FeedPage | None:
 
 def _parse_feed_data(data: dict) -> FeedPage:
     pagination = data["pagination"]
+    listings = {ad["token"]: _parse_listing(ad) for ad in _get_ads(data)}
     return FeedPage(
-        urls={_get_ad_url(ad) for ad in _get_ads(data)},
+        listings=tuple(listings.values()),
         pages=int(pagination.get("pages") or 0),
         total=int(pagination.get("total") or 0),
     )
@@ -51,6 +54,31 @@ def _get_ads(data: dict) -> list[dict]:
     return [ad for group in groups for ad in group if isinstance(ad, dict) and ad.get("token")]
 
 
-def _get_ad_url(ad: dict) -> str:
+def _parse_listing(ad: dict) -> CarListing:
+    return CarListing(
+        url=_get_url(ad),
+        manufacturer=_get_text(ad.get("manufacturer")),
+        model=_get_text(ad.get("model")),
+        sub_model=_get_text(ad.get("subModel")),
+        year=_get_number((ad.get("vehicleDates") or {}).get("yearOfProduction")),
+        hand=_get_number(ad.get("hand")),
+        price=_get_number(ad.get("price")),
+    )
+
+
+def _get_url(ad: dict) -> str:
     # Receivership sales have no Yad2 page of their own, their card opens the auction site.
     return ad.get("externalKonesUrl") or _ITEM_URL.format(token=ad["token"])
+
+
+def _get_text(value: object) -> str | None:
+    """Return the text of one of Yad2's `{id, text}` objects."""
+    text = value.get("text") if isinstance(value, dict) else None
+    return text.strip() or None if isinstance(text, str) else None
+
+
+def _get_number(value: object) -> int | None:
+    """Return a number, or the id of one of Yad2's `{id, text}` objects."""
+    if isinstance(value, dict):
+        value = value.get("id")
+    return value if isinstance(value, int) and value > 0 else None

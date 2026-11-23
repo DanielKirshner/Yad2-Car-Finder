@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY src ./src
-RUN chmod 755 /usr/local/bin/entrypoint.sh && mkdir logs && chown bot:bot logs
+RUN chmod 755 /usr/local/bin/entrypoint.sh && mkdir logs data && chown bot:bot logs data
 
 USER bot
 
