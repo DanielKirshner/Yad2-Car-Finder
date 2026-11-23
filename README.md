@@ -44,3 +44,13 @@ Then open your bot in Telegram and send `/start`
 2. `/search` - configure a new search (manufacturer, model, year range, scan interval)
 3. `/stop` - stop the active scan
 4. `/status` - show current scan configuration and how many cars have been found
+
+## Development
+
+```bash
+make install   # runtime and development dependencies
+make check     # lint, formatting and tests
+make audit     # known vulnerabilities in the dependencies
+```
+
+CI runs the same checks on every push to `master` and every pull request, on Python 3.12 to 3.15
