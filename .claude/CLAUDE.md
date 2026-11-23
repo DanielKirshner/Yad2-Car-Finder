@@ -54,19 +54,35 @@ src/
 
 ## Code style
 
+Follows the MacSpoofer repo.
+
 - ruff formats and lints: double quotes, spaces, 100 columns, sorted imports
-- A single underscore `_` for private members (not `__`)
+- Small functions that do one thing. Split a function when it needs a comment to separate its steps
+- Model data with frozen dataclasses, and fixed values with `StrEnum` or `IntEnum`. No bare dicts or
+  tuples across module boundaries
+- A single underscore `_` for private members, methods and module helpers (not `__`)
+- Type hints on every function, including the return type
 - Plain dash `-` in text, never an em dash
+
+## Docs
+
+- Every module and class starts with a docstring
+- Public functions get a Google-style docstring. Add `Args`, `Returns` and `Raises` when the signature
+  does not already say it. One line is enough for private helpers, none if the name says it all
+- Comments say why, not what
 
 ## Errors
 
-- Raise `CustomException(message, ErrorCode.X)` with a specific code. No bare `except`, no
-  booleans for failure
-- Wrap third-party errors at the boundary with `raise ... from e`, and log them before raising
-- Add an `ErrorCode` only when something raises it
+- Raise `CustomException(message=..., error_code=ErrorCode.X)`, with keywords and a specific code. No
+  bare `except`, no booleans for failure
+- Wrap third-party errors at the boundary: `except httpx.HTTPError as err: raise ... from err`
+- Let unexpected errors surface with a traceback. Do not turn bugs into messages
+- Add an `ErrorCode` only when something raises it, under the comment of its subsystem
 
 ## Async
 
+- A resource that must be released (browser, database, HTTP client) is an async context manager
+- Blocking work (file trees, CPU) runs in `asyncio.to_thread`
 - All I/O is async: browser, HTTP (`httpx.AsyncClient`), Telegram (`python-telegram-bot` v22+)
 - `asyncio.sleep()`, never `time.sleep()`
 - nodriver runs in its own event loop on a worker thread (`scanner._run_scraper_sync`) so a
